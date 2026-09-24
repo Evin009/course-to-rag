@@ -157,6 +157,19 @@ def test_walk_lesson_recurses_into_nested_items():
     assert "Nested text block." in markdown
 
 
+def test_extract_text_keeps_both_heading_and_paragraph_when_both_present():
+    lesson = {
+        "id": "lesson-7",
+        "title": "Multi-field",
+        "items": [
+            {"type": "text", "items": [{"heading": "<h2>Key term</h2>", "paragraph": "<p>Definition text.</p>"}]}
+        ],
+    }
+    markdown, _ = walk_lesson(lesson)
+    assert "Key term" in markdown
+    assert "Definition text." in markdown
+
+
 def test_walk_lesson_extracts_image_block_with_key_decoding():
     lesson = {
         "id": "lesson-5",

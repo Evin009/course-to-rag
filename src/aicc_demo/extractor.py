@@ -31,10 +31,11 @@ def _decode_key(key: str) -> str:
 
 
 def _extract_text(item: dict) -> str | None:
+    parts = []
     for field in ("heading", "paragraph", "description"):
         if field in item and item[field]:
-            return strip_html(item[field])
-    return None
+            parts.append(strip_html(item[field]))
+    return "\n\n".join(parts) if parts else None
 
 
 def _extract_media_entry(item: dict, lesson_id: str, lesson_title: str, order: int) -> dict | None:

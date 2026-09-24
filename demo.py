@@ -10,6 +10,7 @@ from aicc_demo.pipeline import (
     estimate_chunk_tokens,
 )
 from aicc_demo.retrieval import Retriever
+from aicc_demo.generate import generate_answer
 
 OUTPUT_DIR = "data/suture"
 SAMPLE_QUESTION = "How do I hold the needle driver when suturing?"
@@ -38,11 +39,20 @@ def main():
     print(f"(Coverage caveat: reduction above is based on {succeeded}/{attempted} videos actually transcribed.)")
 
     retriever = Retriever(chunks)
-    results = retriever.query(SAMPLE_QUESTION, top_k=1)
-    top_chunk, score = results[0]
+    results = retriever.query(SAMPLE_QUESTION, top_k=3)
+    top_chunk, _top_score = results[0]
+    retrieved_chunks = [chunk for chunk, score in results]
+
     print(f"\nQ: {SAMPLE_QUESTION}")
-    print(f"A: {top_chunk.text}")
-    print(f"Citation: {top_chunk.citation} (score: {score:.3f})")
+    try:
+        answer = generate_answer(SAMPLE_QUESTION, retrieved_chunks)
+        print(f"A: {answer}")
+    except Exception as exc:
+        print(f"A: [generation failed ({exc}), falling back to raw retrieved chunk]")
+        print(f"A: {top_chunk.text}")
+
+    for chunk, score in results:
+        print(f"Citation: {chunk.citation} (score: {score:.3f})")
 
 
 if __name__ == "__main__":

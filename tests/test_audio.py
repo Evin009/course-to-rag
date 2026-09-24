@@ -68,6 +68,16 @@ def test_find_vtt_file_returns_none_when_requested_video_id_not_present(tmp_path
     assert result is None
 
 
+def test_find_vtt_file_returns_none_when_no_video_id_given_even_if_a_vtt_exists(tmp_path):
+    # A missing video id must never fall back to an unqualified "*.vtt"
+    # glob: that could silently return a stale/unrelated video's transcript.
+    (tmp_path / "somevideo11.en.vtt").write_text(VTT_CONTENT)
+
+    result = _find_vtt_file(str(tmp_path), video_id=None)
+
+    assert result is None
+
+
 def test_transcribe_with_asr_not_implemented_for_demo_scope():
     import pytest
     with pytest.raises(NotImplementedError):

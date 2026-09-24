@@ -1,20 +1,17 @@
-import re
-
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import unquote
+
+from aicc_demo.utils import extract_youtube_id
 
 SHARE_ID_SUTURE = "9enP3jMLBp-wenr5LIa0R"
 INSTANT_LINKS_URL = "https://share.articulate.com/api/instant-links/{share_id}/course"
 
 
 def _normalize_youtube_url(raw: str) -> str:
-    match = re.search(
-        r"(?:youtube\.com/(?:watch\?v=|embed/)|youtu\.be/)([a-zA-Z0-9_-]{11})",
-        raw,
-    )
-    if match:
-        return f"https://www.youtube.com/watch?v={match.group(1)}"
+    video_id = extract_youtube_id(raw)
+    if video_id:
+        return f"https://www.youtube.com/watch?v={video_id}"
     return raw
 
 

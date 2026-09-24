@@ -1,22 +1,26 @@
 import glob
 import os
-import re
 import subprocess
+import sys
 
 import webvtt
 
+from aicc_demo.utils import extract_youtube_id
+
 
 def _extract_youtube_id(url: str) -> str | None:
-    match = re.search(
-        r"(?:youtube\.com/(?:watch\?v=|embed/)|youtu\.be/)([a-zA-Z0-9_-]{11})",
-        url,
-    )
-    return match.group(1) if match else None
+    return extract_youtube_id(url)
 
 
 def _find_vtt_file(output_dir: str, video_id: str | None = None) -> str | None:
-    pattern = f"{video_id}*.vtt" if video_id else "*.vtt"
-    matches = glob.glob(os.path.join(output_dir, pattern))
+    if video_id is None:
+        # Without a video id we can't safely scope the glob to the right
+        # video, and an unqualified "*.vtt" fallback risks matching a
+        # stale transcript left over from a different video. Treat a
+        # missing id the same as "no transcript found" so the caller's
+        # existing ASR-fallback/skip path handles it instead of guessing.
+        return None
+    matches = glob.glob(os.path.join(output_dir, f"{video_id}*.vtt"))
     return matches[0] if matches else None
 
 

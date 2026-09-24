@@ -46,10 +46,10 @@ def main():
     print(f"\nQ: {SAMPLE_QUESTION}")
     try:
         answer = generate_answer(SAMPLE_QUESTION, retrieved_chunks)
-        print(f"A: {answer}")
     except Exception as exc:
-        print(f"A: [generation failed ({exc}), falling back to raw retrieved chunk]")
-        print(f"A: {top_chunk.text}")
+        print(f"[generation failed ({exc}), falling back to raw retrieved chunk]")
+        answer = top_chunk.text
+    print(f"A: {answer}")
 
     for chunk, score in results:
         print(f"Citation: {chunk.citation} (score: {score:.3f})")

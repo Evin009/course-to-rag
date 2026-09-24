@@ -1,6 +1,6 @@
 import os
 
-import google.generativeai as genai
+from google import genai
 
 from aicc_demo.assembly import Chunk
 
@@ -22,8 +22,7 @@ def _build_prompt(question: str, chunks: list[Chunk]) -> str:
 
 
 def generate_answer(question: str, chunks: list[Chunk]) -> str:
-    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-    model = genai.GenerativeModel(MODEL_NAME)
+    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     prompt = _build_prompt(question, chunks)
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(model=MODEL_NAME, contents=prompt)
     return response.text.strip()

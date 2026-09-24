@@ -16,19 +16,20 @@ def _chunks():
 def test_generate_answer_builds_prompt_with_question_and_chunks(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
     with patch("aicc_demo.generate.genai") as mock_genai:
-        mock_model = MagicMock()
+        mock_client = MagicMock()
         mock_response = MagicMock()
         mock_response.text = "  You should hold it like a pencil (Knot Tying @ 0:00).  "
-        mock_model.generate_content.return_value = mock_response
-        mock_genai.GenerativeModel.return_value = mock_model
+        mock_client.models.generate_content.return_value = mock_response
+        mock_genai.Client.return_value = mock_client
 
         result = generate_answer("How do I hold the needle driver?", _chunks())
 
-        mock_genai.configure.assert_called_once()
-        mock_genai.GenerativeModel.assert_called_once_with("gemini-2.5-flash")
+        mock_genai.Client.assert_called_once_with(api_key="fake-key")
 
-        assert mock_model.generate_content.call_count == 1
-        prompt = mock_model.generate_content.call_args[0][0]
+        assert mock_client.models.generate_content.call_count == 1
+        kwargs = mock_client.models.generate_content.call_args.kwargs
+        assert kwargs["model"] == "gemini-2.5-flash"
+        prompt = kwargs["contents"]
         assert "How do I hold the needle driver?" in prompt
         assert "Hold the needle driver like a pencil." in prompt
         assert "Keep your wrist relaxed while suturing." in prompt
@@ -41,9 +42,9 @@ def test_generate_answer_builds_prompt_with_question_and_chunks(monkeypatch):
 def test_generate_answer_propagates_api_errors(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
     with patch("aicc_demo.generate.genai") as mock_genai:
-        mock_model = MagicMock()
-        mock_model.generate_content.side_effect = RuntimeError("network error")
-        mock_genai.GenerativeModel.return_value = mock_model
+        mock_client = MagicMock()
+        mock_client.models.generate_content.side_effect = RuntimeError("network error")
+        mock_genai.Client.return_value = mock_client
 
         with pytest.raises(RuntimeError, match="network error"):
             generate_answer("How do I hold the needle driver?", _chunks())

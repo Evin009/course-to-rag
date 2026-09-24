@@ -194,3 +194,44 @@ def test_run_pipeline_sums_duration_from_transcript_segments_excluding_failures(
     # Only the two successfully-transcribed videos contribute their last
     # segment's "end" value; the failed video contributes nothing.
     assert stats["total_duration_seconds"] == 45.5 + 120.0
+
+
+def test_run_pipeline_still_processes_visuals_when_transcript_fails(tmp_path):
+    """Regression test: visual processing must run even if transcript fetch fails.
+
+    This test verifies the control flow fix where except NotImplementedError: pass
+    (not continue) ensures visual analysis runs for every video regardless of
+    transcript success.
+    """
+    fake_course = {
+        "course": {
+            "lessons": [
+                {"id": "l1", "title": "Knots", "items": [
+                    {"type": "multimedia", "items": [
+                        {"media": {"embed": {"originalUrl": "https://www.youtube.com/watch?v=failvideo1"}}}
+                    ]},
+                ]},
+            ]
+        }
+    }
+
+    fake_visual_chunk = Chunk(
+        lesson_title="Knots",
+        block_order=0,
+        text="Visual content from frame OCR despite transcript failure",
+        citation="Knots @ 0:15 (frame)",
+    )
+
+    def fake_get_transcript(entry, output_dir):
+        if "failvideo1" in entry["url"]:
+            raise NotImplementedError("no captions")
+        return [{"start": 0.0, "end": 2.0, "text": "Some narration."}]
+
+    with patch("aicc_demo.pipeline.fetch_course_json", return_value=fake_course):
+        with patch("aicc_demo.pipeline.get_transcript", side_effect=fake_get_transcript):
+            with patch("aicc_demo.pipeline.process_video_visuals", return_value=[fake_visual_chunk]):
+                chunks = run_pipeline("fake-share-id", str(tmp_path))
+
+    # The fake visual chunk should be in the result, proving visual processing
+    # still ran even though get_transcript raised NotImplementedError.
+    assert fake_visual_chunk in chunks

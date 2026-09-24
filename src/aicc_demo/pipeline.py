@@ -5,6 +5,7 @@ from aicc_demo.extractor import fetch_course_json, walk_lesson
 from aicc_demo.audio import get_transcript
 from aicc_demo.assembly import Chunk, build_chunks, chunk_lesson_text
 from aicc_demo.images import process_image_entries
+from aicc_demo.visual import process_video_visuals
 
 
 def estimate_raw_video_tokens(duration_seconds: float, tokens_per_second: float = 263.0) -> int:
@@ -55,7 +56,14 @@ def run_pipeline(share_id: str, output_dir: str, stats: dict | None = None) -> l
                 if segments:
                     total_duration_seconds += segments[-1]["end"]
             except NotImplementedError:
-                continue
+                pass
+
+            # Visual analysis (frame extraction/dedup/OCR) runs independently
+            # of narration/captions, for every video, regardless of whether
+            # a transcript was successfully produced above.
+            all_chunks.extend(
+                process_video_visuals(entry["url"], lesson["title"], entry["block_order"], output_dir)
+            )
 
         if video_entries:
             print(

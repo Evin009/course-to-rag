@@ -67,6 +67,40 @@ def test_run_pipeline_skips_failed_transcript_and_keeps_successful_one(tmp_path)
     assert not any("fail" in c.text.lower() for c in chunks)
 
 
+def test_run_pipeline_includes_visual_chunks_from_process_video_visuals(tmp_path):
+    fake_course = {
+        "course": {
+            "lessons": [
+                {"id": "l1", "title": "Knots", "items": [
+                    {"type": "multimedia", "items": [
+                        {"media": {"embed": {"originalUrl": "https://www.youtube.com/watch?v=okvideo111"}}}
+                    ]},
+                ]},
+            ]
+        }
+    }
+
+    fake_visual_chunk = Chunk(
+        lesson_title="Knots",
+        block_order=0,
+        text="Slide text from frame OCR",
+        citation="Knots @ 0:15 (frame)",
+    )
+
+    def fake_get_transcript(entry, output_dir):
+        return [{"start": 0.0, "end": 2.0, "text": "Tie the knot like this."}]
+
+    with patch("aicc_demo.pipeline.fetch_course_json", return_value=fake_course):
+        with patch("aicc_demo.pipeline.get_transcript", side_effect=fake_get_transcript):
+            with patch("aicc_demo.pipeline.process_video_visuals", return_value=[fake_visual_chunk]) as mock_visuals:
+                chunks = run_pipeline("fake-share-id", str(tmp_path))
+
+    assert fake_visual_chunk in chunks
+    mock_visuals.assert_called_once_with(
+        "https://www.youtube.com/watch?v=okvideo111", "Knots", 0, str(tmp_path)
+    )
+
+
 def test_run_pipeline_includes_image_chunks_from_process_image_entries(tmp_path):
     fake_course = {
         "course": {

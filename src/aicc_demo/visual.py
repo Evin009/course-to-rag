@@ -1,5 +1,6 @@
 import glob
 import os
+import re
 import subprocess
 import sys
 
@@ -14,6 +15,24 @@ from aicc_demo.utils import extract_youtube_id
 # Deliberate demo-scope trade-off: one frame every 15s keeps frame count
 # (and OCR time) manageable while still catching most on-screen text.
 DEFAULT_FRAME_INTERVAL_SECONDS = 15
+
+# Explicit allowlist of real video container extensions. yt-dlp's
+# `bv*+ba/b` selector merges to .mp4 or .mkv (and .webm when a single
+# progressive webm is served), so an allowlist keeps the lookup from
+# picking up a same-prefix non-video file — notably the `{video_id}.mp3`
+# that the ASR path writes into this SAME output_dir.
+VIDEO_EXTENSIONS = {".mp4", ".mkv", ".webm", ".mov", ".m4v"}
+
+_FRAME_NUMBER_RE = re.compile(r"frame_(\d+)\.png$")
+
+
+def _find_video_file(output_dir: str, video_id: str) -> str | None:
+    matches = [
+        path
+        for path in sorted(glob.glob(os.path.join(output_dir, f"{video_id}.*")))
+        if os.path.splitext(path)[1].lower() in VIDEO_EXTENSIONS
+    ]
+    return matches[0] if matches else None
 
 
 def dedupe_frames(frame_paths: list[str], threshold: int = 5) -> list[str]:
@@ -53,9 +72,18 @@ def _download_video(url: str, output_dir: str) -> str | None:
         # uses for Articulate videos (typically already an mp4).
         return _download_file_directly(url, output_dir)
 
+    # Reuse an already-downloaded video: repeated demo runs otherwise
+    # re-invoke yt-dlp for every video and get rate-limited by YouTube.
+    cached = _find_video_file(output_dir, video_id)
+    if cached is not None:
+        return cached
+
+    # YouTube no longer serves progressive/muxed streams at <=480p, so a
+    # plain `best[height<=480]` matches nothing. Ask for the best video +
+    # best audio and let yt-dlp merge, with progressive fallbacks.
     result = subprocess.run(
         [
-            "yt-dlp", "-f", "best[height<=480]",
+            "yt-dlp", "-f", "bv*[height<=480]+ba/b[height<=480]/b",
             "-o", os.path.join(output_dir, "%(id)s.%(ext)s"),
             url,
         ],
@@ -64,9 +92,8 @@ def _download_video(url: str, output_dir: str) -> str | None:
         check=False,
     )
 
-    matches = glob.glob(os.path.join(output_dir, f"{video_id}*"))
-    matches = [m for m in matches if not m.endswith(".vtt")]
-    if not matches:
+    match = _find_video_file(output_dir, video_id)
+    if match is None:
         if result.returncode != 0:
             stderr_tail = (result.stderr or "").strip()[-200:]
             print(
@@ -74,12 +101,20 @@ def _download_video(url: str, output_dir: str) -> str | None:
                 file=sys.stderr,
             )
         return None
-    return matches[0]
+    return match
 
 
 def extract_frames(
     video_path: str, output_dir: str, interval_seconds: int = DEFAULT_FRAME_INTERVAL_SECONDS
 ) -> list[str]:
+    """Extract one frame every `interval_seconds` into `output_dir`.
+
+    `output_dir` MUST be per-video (see `process_video_visuals`): this
+    globs every `frame_*.png` in the directory, so a shared directory
+    would return a previous video's stale frames alongside this one's
+    and mis-attribute them (wrong lesson, fabricated timestamp).
+    """
+    os.makedirs(output_dir, exist_ok=True)
     result = subprocess.run(
         [
             "ffmpeg", "-i", video_path,
@@ -113,16 +148,40 @@ def process_video_visuals(
     if video_path is None:
         return []
 
-    frames = extract_frames(video_path, output_dir, interval_seconds)
+    # Each video gets its own frame directory, so one video's frames can
+    # never be picked up by another video's extraction glob (which would
+    # attribute frame content to the wrong lesson at a fabricated time).
+    frame_dir = os.path.join(
+        output_dir, "frames", extract_youtube_id(video_url) or "unknown"
+    )
+    frames = extract_frames(video_path, frame_dir, interval_seconds)
     surviving_frames = dedupe_frames(frames)
 
     chunks: list[Chunk] = []
     for frame_path in surviving_frames:
-        ocr_text = ocr_image(frame_path)
+        try:
+            ocr_text = ocr_image(frame_path)
+        except Exception as exc:
+            print(
+                f"WARNING: OCR failed for frame {frame_path}: {exc}",
+                file=sys.stderr,
+            )
+            continue
         if not ocr_text:
             continue
 
-        frame_index = frames.index(frame_path) if frame_path in frames else 0
+        # ffmpeg names frames `frame_%04d.png` starting at 1, so the
+        # number in the filename IS the chronological index. Parsing it
+        # back out avoids an O(n^2) `frames.index()` lookup that would
+        # silently mint a false `@ 0:00` citation on a miss.
+        match = _FRAME_NUMBER_RE.search(os.path.basename(frame_path))
+        if match is None:
+            print(
+                f"WARNING: unexpected frame filename {frame_path}; skipping",
+                file=sys.stderr,
+            )
+            continue
+        frame_index = int(match.group(1)) - 1
         timestamp = _format_timestamp(frame_index * interval_seconds)
         chunks.append(
             Chunk(

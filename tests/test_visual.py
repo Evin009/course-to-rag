@@ -51,10 +51,12 @@ def test_caption_frame_not_implemented_for_demo_scope():
 
 def test_download_video_returns_path_to_downloaded_youtube_file(tmp_path):
     video_path = tmp_path / "abc12345678.mp4"
-    video_path.write_bytes(b"fake video")
 
-    with patch("aicc_demo.visual.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stderr="")
+    def fake_run(*args, **kwargs):
+        video_path.write_bytes(b"fake video")
+        return MagicMock(returncode=0, stderr="")
+
+    with patch("aicc_demo.visual.subprocess.run", side_effect=fake_run) as mock_run:
         with patch("aicc_demo.visual.extract_youtube_id", return_value="abc12345678"):
             result = _download_video("https://www.youtube.com/watch?v=abc12345678", str(tmp_path))
 
@@ -62,6 +64,34 @@ def test_download_video_returns_path_to_downloaded_youtube_file(tmp_path):
     mock_run.assert_called_once()
     args = mock_run.call_args[0][0]
     assert "-x" not in args
+    # Progressive/muxed <=480p streams no longer exist on YouTube.
+    assert "bv*[height<=480]+ba/b[height<=480]/b" in args
+
+
+def test_download_video_skips_ytdlp_when_video_already_downloaded(tmp_path):
+    video_path = tmp_path / "abc12345678.mp4"
+    video_path.write_bytes(b"fake video")
+
+    with patch("aicc_demo.visual.subprocess.run") as mock_run:
+        with patch("aicc_demo.visual.extract_youtube_id", return_value="abc12345678"):
+            result = _download_video("https://www.youtube.com/watch?v=abc12345678", str(tmp_path))
+
+    assert result == str(video_path)
+    mock_run.assert_not_called()
+
+
+def test_download_video_ignores_same_id_audio_file_from_asr_path(tmp_path):
+    # _download_audio writes {video_id}.mp3 into the SAME output_dir; it
+    # must never be handed to ffmpeg as if it were the video.
+    (tmp_path / "abc12345678.mp3").write_bytes(b"fake audio")
+
+    with patch("aicc_demo.visual.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0, stderr="")
+        with patch("aicc_demo.visual.extract_youtube_id", return_value="abc12345678"):
+            result = _download_video("https://www.youtube.com/watch?v=abc12345678", str(tmp_path))
+
+    assert result is None
+    mock_run.assert_called_once()
 
 
 def test_download_video_returns_none_when_no_matching_file(tmp_path):
@@ -100,6 +130,85 @@ def test_extract_frames_returns_sorted_frame_paths(tmp_path):
         str(tmp_path / "frame_0003.png"),
     ]
     mock_run.assert_called_once()
+
+
+def test_extract_frames_is_isolated_per_video_directory(tmp_path):
+    """Regression: frames from one video must never leak into another's.
+
+    Previously every video wrote `frame_%04d.png` into one shared
+    output_dir and globbed ALL of them, so a later video would return the
+    earlier video's stale frames and mis-attribute them (wrong lesson,
+    fabricated timestamp). Per-video subdirectories prevent this.
+    """
+    base = tmp_path / "data"
+    video_a_dir = base / "frames" / "videoAAAAAAA"
+    video_b_dir = base / "frames" / "videoBBBBBBB"
+    video_a_dir.mkdir(parents=True)
+
+    # Leftover frames from a previous video's extraction.
+    stale_frames = []
+    for i in range(1, 6):
+        stale = video_a_dir / f"frame_{i:04d}.png"
+        stale.write_bytes(b"stale")
+        stale_frames.append(str(stale))
+
+    # ffmpeg for the NEW video writes only into its own directory.
+    def fake_run(*args, **kwargs):
+        video_b_dir.mkdir(parents=True, exist_ok=True)
+        (video_b_dir / "frame_0001.png").write_bytes(b"new")
+        return MagicMock(returncode=0, stderr="")
+
+    with patch("aicc_demo.visual.subprocess.run", side_effect=fake_run):
+        result = extract_frames("/fake/video_b.mp4", str(video_b_dir))
+
+    assert result == [str(video_b_dir / "frame_0001.png")]
+    for stale in stale_frames:
+        assert stale not in result
+
+
+def test_process_video_visuals_uses_per_video_frame_directory(tmp_path):
+    captured = {}
+
+    def fake_extract(video_path, output_dir, interval_seconds):
+        captured["output_dir"] = output_dir
+        return []
+
+    with patch("aicc_demo.visual._download_video", return_value="/fake/video.mp4"):
+        with patch("aicc_demo.visual.extract_frames", side_effect=fake_extract):
+            process_video_visuals(
+                "https://www.youtube.com/watch?v=abc12345678", "Knots", 0, str(tmp_path)
+            )
+
+    assert captured["output_dir"] == str(tmp_path / "frames" / "abc12345678")
+
+
+def test_process_video_visuals_timestamp_comes_from_frame_number(tmp_path):
+    # frame_0003.png is the 3rd frame -> index 2 -> 2 * 15s = 0:30
+    frame_paths = [str(tmp_path / "frame_0003.png")]
+
+    with patch("aicc_demo.visual._download_video", return_value="/fake/video.mp4"):
+        with patch("aicc_demo.visual.extract_frames", return_value=frame_paths):
+            with patch("aicc_demo.visual.dedupe_frames", return_value=frame_paths):
+                with patch("aicc_demo.visual.ocr_image", return_value="Step 3"):
+                    chunks = process_video_visuals(
+                        "https://www.youtube.com/watch?v=abc123", "Knots", 0, str(tmp_path)
+                    )
+
+    assert chunks[0].citation == "Knots @ 0:30 (frame)"
+
+
+def test_process_video_visuals_skips_frame_when_ocr_raises(tmp_path):
+    frame_paths = [str(tmp_path / "frame_0001.png")]
+
+    with patch("aicc_demo.visual._download_video", return_value="/fake/video.mp4"):
+        with patch("aicc_demo.visual.extract_frames", return_value=frame_paths):
+            with patch("aicc_demo.visual.dedupe_frames", return_value=frame_paths):
+                with patch("aicc_demo.visual.ocr_image", side_effect=RuntimeError("tesseract missing")):
+                    chunks = process_video_visuals(
+                        "https://www.youtube.com/watch?v=abc123", "Knots", 0, str(tmp_path)
+                    )
+
+    assert chunks == []
 
 
 def test_extract_frames_returns_empty_list_when_no_frames_produced(tmp_path):

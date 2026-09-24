@@ -67,6 +67,31 @@ def test_run_pipeline_skips_failed_transcript_and_keeps_successful_one(tmp_path)
     assert not any("fail" in c.text.lower() for c in chunks)
 
 
+def test_run_pipeline_includes_image_chunks_from_process_image_entries(tmp_path):
+    fake_course = {
+        "course": {
+            "lessons": [
+                {"id": "l1", "title": "Intro", "items": [
+                    {"type": "text", "items": [{"paragraph": "<p>Suturing basics text.</p>"}]}
+                ]},
+            ]
+        }
+    }
+
+    fake_image_chunk = Chunk(
+        lesson_title="Intro",
+        block_order=0,
+        text="Slide text from OCR",
+        citation="Intro (image)",
+    )
+
+    with patch("aicc_demo.pipeline.fetch_course_json", return_value=fake_course):
+        with patch("aicc_demo.pipeline.process_image_entries", return_value=[fake_image_chunk]):
+            chunks = run_pipeline("fake-share-id", str(tmp_path))
+
+    assert fake_image_chunk in chunks
+
+
 def test_run_pipeline_populates_stats_with_coverage_and_video_entries(tmp_path):
     fake_course = {
         "course": {

@@ -4,6 +4,7 @@ import sys
 from aicc_demo.extractor import fetch_course_json, walk_lesson
 from aicc_demo.audio import get_transcript
 from aicc_demo.assembly import Chunk, build_chunks, chunk_lesson_text
+from aicc_demo.images import process_image_entries
 
 
 def estimate_raw_video_tokens(duration_seconds: float, tokens_per_second: float = 263.0) -> int:
@@ -65,6 +66,7 @@ def run_pipeline(share_id: str, output_dir: str, stats: dict | None = None) -> l
         total_succeeded += succeeded
 
         all_chunks.extend(build_chunks(lesson["title"], manifest, transcripts))
+        all_chunks.extend(process_image_entries(manifest, output_dir))
 
     if stats is not None:
         stats["attempted"] = total_attempted

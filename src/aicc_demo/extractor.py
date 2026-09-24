@@ -8,7 +8,7 @@ INSTANT_LINKS_URL = "https://share.articulate.com/api/instant-links/{share_id}/c
 
 def fetch_course_json(share_id: str) -> dict:
     url = INSTANT_LINKS_URL.format(share_id=share_id)
-    response = requests.post(url, timeout=30)
+    response = requests.post(url, json={}, timeout=30)
     response.raise_for_status()
     return response.json()
 

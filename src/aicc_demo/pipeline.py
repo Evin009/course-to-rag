@@ -55,8 +55,15 @@ def run_pipeline(share_id: str, output_dir: str, stats: dict | None = None) -> l
                 succeeded += 1
                 if segments:
                     total_duration_seconds += segments[-1]["end"]
-            except NotImplementedError:
-                pass
+            except Exception as exc:
+                # Any transcript failure for one video (out-of-scope path,
+                # corrupt audio, ASR model download failure, ...) must not
+                # kill the whole run — log it and move on.
+                print(
+                    f"  WARNING: transcript failed for {entry['url']} "
+                    f"in lesson '{lesson['title']}': {exc}",
+                    file=sys.stderr,
+                )
 
             # Visual analysis (frame extraction/dedup/OCR) runs independently
             # of narration/captions, for every video, regardless of whether

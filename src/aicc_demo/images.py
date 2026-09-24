@@ -1,3 +1,5 @@
+import sys
+
 import pytesseract
 
 from aicc_demo.assembly import Chunk
@@ -18,7 +20,13 @@ def process_image_entries(manifest_entries: list[dict], output_dir: str) -> list
         if image_path is None:
             continue
 
-        ocr_text = ocr_image(image_path)
+        try:
+            ocr_text = ocr_image(image_path)
+        except Exception as exc:
+            # e.g. TesseractNotFoundError when the tesseract binary isn't
+            # installed: treat as "no text found" rather than crashing.
+            print(f"WARNING: OCR failed for {image_path}: {exc}", file=sys.stderr)
+            continue
         if not ocr_text:
             continue
 

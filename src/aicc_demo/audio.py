@@ -36,6 +36,14 @@ def _timestamp_to_seconds(ts: str) -> float:
 
 
 def fetch_youtube_captions(url: str, output_dir: str) -> list[dict] | None:
+    video_id = _extract_youtube_id(url)
+
+    # Reuse a VTT cached by an earlier run instead of re-invoking yt-dlp
+    # for every video on every run (which gets the demo rate-limited).
+    vtt_path = _find_vtt_file(output_dir, video_id)
+    if vtt_path:
+        return _parse_vtt(vtt_path)
+
     result = subprocess.run(
         [
             "yt-dlp",
@@ -50,7 +58,6 @@ def fetch_youtube_captions(url: str, output_dir: str) -> list[dict] | None:
         check=False,
     )
 
-    video_id = _extract_youtube_id(url)
     vtt_path = _find_vtt_file(output_dir, video_id)
     if not vtt_path:
         if result.returncode != 0:
@@ -60,6 +67,10 @@ def fetch_youtube_captions(url: str, output_dir: str) -> list[dict] | None:
                 file=sys.stderr,
             )
         return None
+    return _parse_vtt(vtt_path)
+
+
+def _parse_vtt(vtt_path: str) -> list[dict]:
 
     segments = []
     for caption in webvtt.read(vtt_path):

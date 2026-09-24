@@ -1,12 +1,22 @@
 import glob
 import os
+import re
 import subprocess
 
 import webvtt
 
 
-def _find_vtt_file(output_dir: str) -> str | None:
-    matches = glob.glob(os.path.join(output_dir, "*.vtt"))
+def _extract_youtube_id(url: str) -> str | None:
+    match = re.search(
+        r"(?:youtube\.com/(?:watch\?v=|embed/)|youtu\.be/)([a-zA-Z0-9_-]{11})",
+        url,
+    )
+    return match.group(1) if match else None
+
+
+def _find_vtt_file(output_dir: str, video_id: str | None = None) -> str | None:
+    pattern = f"{video_id}*.vtt" if video_id else "*.vtt"
+    matches = glob.glob(os.path.join(output_dir, pattern))
     return matches[0] if matches else None
 
 
@@ -29,7 +39,8 @@ def fetch_youtube_captions(url: str, output_dir: str) -> list[dict] | None:
         check=False,
     )
 
-    vtt_path = _find_vtt_file(output_dir)
+    video_id = _extract_youtube_id(url)
+    vtt_path = _find_vtt_file(output_dir, video_id)
     if not vtt_path:
         return None
 

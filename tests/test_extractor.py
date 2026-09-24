@@ -109,6 +109,31 @@ def test_walk_lesson_extracts_articulate_hosted_video_with_captions():
     assert entry["caption_key"] == "abc%20def.vtt"
 
 
+def test_walk_lesson_normalizes_iframe_embed_html_to_clean_youtube_url():
+    lesson = {
+        "id": "lesson-6",
+        "title": "Embedded Video",
+        "items": [
+            {
+                "type": "multimedia",
+                "items": [
+                    {
+                        "media": {
+                            "embed": {
+                                "originalUrl": '<iframe width="560" height="315" src="https://www.youtube.com/embed/dQw4w9WgXcQ?rel=0" frameborder="0"></iframe>'
+                            }
+                        }
+                    }
+                ],
+            }
+        ],
+    }
+
+    markdown, manifest = walk_lesson(lesson)
+
+    assert manifest[0]["url"] == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+
 def test_walk_lesson_recurses_into_nested_items():
     lesson = {
         "id": "lesson-4",

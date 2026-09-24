@@ -1,9 +1,21 @@
+import re
+
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import unquote
 
 SHARE_ID_SUTURE = "9enP3jMLBp-wenr5LIa0R"
 INSTANT_LINKS_URL = "https://share.articulate.com/api/instant-links/{share_id}/course"
+
+
+def _normalize_youtube_url(raw: str) -> str:
+    match = re.search(
+        r"(?:youtube\.com/(?:watch\?v=|embed/)|youtu\.be/)([a-zA-Z0-9_-]{11})",
+        raw,
+    )
+    if match:
+        return f"https://www.youtube.com/watch?v={match.group(1)}"
+    return raw
 
 
 def fetch_course_json(share_id: str) -> dict:
@@ -39,7 +51,7 @@ def _extract_media_entry(item: dict, lesson_id: str, lesson_title: str, order: i
             "lesson_title": lesson_title,
             "block_order": order,
             "type": "youtube",
-            "url": media["embed"]["originalUrl"],
+            "url": _normalize_youtube_url(media["embed"]["originalUrl"]),
             "captions_available": False,
             "caption_key": None,
         }

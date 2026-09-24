@@ -130,3 +130,30 @@ def test_walk_lesson_recurses_into_nested_items():
     markdown, manifest = walk_lesson(lesson)
 
     assert "Nested text block." in markdown
+
+
+def test_walk_lesson_extracts_image_block_with_key_decoding():
+    lesson = {
+        "id": "lesson-5",
+        "title": "Wound Diagram",
+        "items": [
+            {
+                "type": "image",
+                "items": [
+                    {
+                        "media": {
+                            "image": {"key": "diagram%2520one.png"}
+                        }
+                    }
+                ],
+            }
+        ],
+    }
+
+    markdown, manifest = walk_lesson(lesson)
+
+    entry = manifest[0]
+    assert entry["type"] == "image"
+    assert entry["url"] == "https://articulateusercontent.com/diagram%20one.png"
+    assert entry["captions_available"] is False
+    assert entry["caption_key"] is None

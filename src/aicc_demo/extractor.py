@@ -1,5 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
+from urllib.parse import unquote
 
 SHARE_ID_SUTURE = "wFfts7vyFk1HxZneZqamI"
 INSTANT_LINKS_URL = "https://share.articulate.com/api/instant-links/{share_id}/course"
@@ -17,7 +18,7 @@ def strip_html(html: str) -> str:
 
 
 def _decode_key(key: str) -> str:
-    return key.replace("%2520", "%20")
+    return unquote(key)
 
 
 def _extract_text(item: dict) -> str | None:

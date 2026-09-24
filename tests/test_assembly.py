@@ -2,14 +2,23 @@ from aicc_demo.assembly import Chunk, build_chunks, chunk_lesson_text
 
 
 def test_chunk_lesson_text_splits_by_paragraph_with_citation():
-    markdown = "## Knot Tying\n\nFirst paragraph.\n\nSecond paragraph."
+    paragraph_one = (
+        "Hold the needle driver firmly and keep a steady forty five degree "
+        "entry angle through the tissue. " * 6
+    ).strip()
+    paragraph_two = (
+        "Tie a secure square knot by looping the suture around the "
+        "instrument twice before cinching it down. " * 6
+    ).strip()
+    markdown = f"## Knot Tying\n\n{paragraph_one}\n\n{paragraph_two}"
 
     chunks = chunk_lesson_text("Knot Tying", markdown)
 
-    assert all(isinstance(c, Chunk) for c in chunks)
-    assert chunks[0].text == "First paragraph."
+    assert len(chunks) == 2
+    assert chunks[0].text == paragraph_one
     assert chunks[0].citation == "Knot Tying"
-    assert chunks[1].text == "Second paragraph."
+    assert chunks[1].text == paragraph_two
+    assert chunks[1].citation == "Knot Tying"
 
 
 def test_chunk_lesson_text_merges_small_paragraphs_up_to_max_chars():

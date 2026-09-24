@@ -8,7 +8,6 @@ from aicc_demo.pipeline import (
     run_pipeline,
     estimate_raw_video_tokens,
     estimate_chunk_tokens,
-    estimate_actual_video_duration_seconds,
 )
 from aicc_demo.retrieval import Retriever
 
@@ -24,10 +23,8 @@ def main():
 
     attempted = stats.get("attempted", 0)
     succeeded = stats.get("succeeded", 0)
-    video_entries = stats.get("video_entries", [])
+    actual_video_seconds = stats.get("total_duration_seconds", 0.0)
 
-    print("Querying actual video durations via yt-dlp...")
-    actual_video_seconds = estimate_actual_video_duration_seconds(video_entries)
     raw_tokens = estimate_raw_video_tokens(actual_video_seconds)
     chunk_tokens = estimate_chunk_tokens(chunks)
     print(f"Transcribed {succeeded}/{attempted} videos")

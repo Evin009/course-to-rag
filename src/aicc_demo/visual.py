@@ -3,6 +3,14 @@ from PIL import Image
 
 
 def dedupe_frames(frame_paths: list[str], threshold: int = 5) -> list[str]:
+    """Drop near-duplicate frames using average-hash + Hamming distance.
+
+    Note: average_hash compares each pixel to the image's own mean, so
+    distinct solid-color/textureless frames (e.g. different title cards)
+    can collide to an identical hash regardless of hue and get
+    incorrectly deduplicated. Fine for frames with real visual content;
+    a known blind spot for flat/solid-color frames.
+    """
     kept: list[str] = []
     kept_hashes: list[imagehash.ImageHash] = []
 

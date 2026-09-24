@@ -30,7 +30,7 @@ def _timestamp_to_seconds(ts: str) -> float:
 
 
 def fetch_youtube_captions(url: str, output_dir: str) -> list[dict] | None:
-    subprocess.run(
+    result = subprocess.run(
         [
             "yt-dlp",
             "--write-auto-sub",
@@ -40,12 +40,19 @@ def fetch_youtube_captions(url: str, output_dir: str) -> list[dict] | None:
             url,
         ],
         capture_output=True,
+        text=True,
         check=False,
     )
 
     video_id = _extract_youtube_id(url)
     vtt_path = _find_vtt_file(output_dir, video_id)
     if not vtt_path:
+        if result.returncode != 0:
+            stderr_tail = (result.stderr or "").strip()[-200:]
+            print(
+                f"WARNING: yt-dlp failed for {url} (exit {result.returncode}): {stderr_tail}",
+                file=sys.stderr,
+            )
         return None
 
     segments = []

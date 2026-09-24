@@ -38,31 +38,32 @@ def test_run_pipeline_walks_all_lessons_and_returns_chunks(tmp_path):
 
 
 def test_estimate_actual_video_duration_seconds_sums_across_videos():
-    fake_course = {
-        "course": {
-            "lessons": [
-                {"id": "l1", "title": "Intro", "items": [
-                    {"type": "multimedia", "items": [
-                        {"media": {"embed": {"originalUrl": "https://www.youtube.com/watch?v=aaaaaaaaaaa"}}}
-                    ]},
-                    {"type": "multimedia", "items": [
-                        {"media": {"embed": {"originalUrl": "https://www.youtube.com/watch?v=bbbbbbbbbbb"}}}
-                    ]},
-                ]},
-            ]
-        }
-    }
+    video_entries = [
+        {"type": "youtube", "url": "https://www.youtube.com/watch?v=aaaaaaaaaaa"},
+        {"type": "youtube", "url": "https://www.youtube.com/watch?v=bbbbbbbbbbb"},
+    ]
 
     def fake_run(cmd, capture_output, text, check):
         url = cmd[-1]
         duration = 120 if "aaaaaaaaaaa" in url else 300
         return MagicMock(returncode=0, stdout=json.dumps({"duration": duration}))
 
-    with patch("aicc_demo.pipeline.fetch_course_json", return_value=fake_course):
-        with patch("aicc_demo.pipeline.subprocess.run", side_effect=fake_run):
-            total = estimate_actual_video_duration_seconds("fake-share-id")
+    with patch("aicc_demo.pipeline.subprocess.run", side_effect=fake_run):
+        total = estimate_actual_video_duration_seconds(video_entries)
 
     assert total == 420
+
+
+def test_estimate_actual_video_duration_seconds_skips_non_youtube_entries():
+    video_entries = [
+        {"type": "articulate_video", "url": "https://articulateusercontent.com/foo.mp4"},
+    ]
+
+    with patch("aicc_demo.pipeline.subprocess.run") as mock_run:
+        total = estimate_actual_video_duration_seconds(video_entries)
+
+    mock_run.assert_not_called()
+    assert total == 0
 
 
 def test_run_pipeline_skips_failed_transcript_and_keeps_successful_one(tmp_path):
@@ -95,3 +96,34 @@ def test_run_pipeline_skips_failed_transcript_and_keeps_successful_one(tmp_path)
     assert video_chunks[0].lesson_title == "Knots"
     assert video_chunks[0].citation == "Knots @ 0:00"
     assert not any("fail" in c.text.lower() for c in chunks)
+
+
+def test_run_pipeline_populates_stats_with_coverage_and_video_entries(tmp_path):
+    fake_course = {
+        "course": {
+            "lessons": [
+                {"id": "l1", "title": "Knots", "items": [
+                    {"type": "multimedia", "items": [
+                        {"media": {"embed": {"originalUrl": "https://www.youtube.com/watch?v=failvideo1"}}}
+                    ]},
+                    {"type": "multimedia", "items": [
+                        {"media": {"embed": {"originalUrl": "https://www.youtube.com/watch?v=okvideo111"}}}
+                    ]},
+                ]},
+            ]
+        }
+    }
+
+    def fake_get_transcript(entry, output_dir):
+        if "failvideo1" in entry["url"]:
+            raise NotImplementedError("no captions")
+        return [{"start": 0.0, "end": 2.0, "text": "Tie the knot like this."}]
+
+    stats: dict = {}
+    with patch("aicc_demo.pipeline.fetch_course_json", return_value=fake_course):
+        with patch("aicc_demo.pipeline.get_transcript", side_effect=fake_get_transcript):
+            run_pipeline("fake-share-id", str(tmp_path), stats=stats)
+
+    assert stats["attempted"] == 2
+    assert stats["succeeded"] == 1
+    assert len(stats["video_entries"]) == 2

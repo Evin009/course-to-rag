@@ -3,9 +3,15 @@ import os
 import subprocess
 import sys
 
+import requests
 import webvtt
+from faster_whisper import WhisperModel
 
 from aicc_demo.utils import extract_youtube_id
+
+# "base" is a deliberate accuracy/speed trade-off for CPU inference in a demo:
+# "tiny" is noticeably less accurate, "large" is too slow without a GPU.
+ASR_MODEL_SIZE = "base"
 
 
 def _extract_youtube_id(url: str) -> str | None:
@@ -65,11 +71,59 @@ def fetch_youtube_captions(url: str, output_dir: str) -> list[dict] | None:
     return segments
 
 
-def transcribe_with_asr(audio_path: str) -> list[dict]:
-    raise NotImplementedError(
-        "ASR (Parakeet/faster-whisper) is out of scope for the Suture demo; "
-        "required for PCC course's uncaptioned Articulate-hosted videos."
+def _download_audio(url: str, output_dir: str) -> str | None:
+    video_id = extract_youtube_id(url)
+    if video_id is None:
+        return None
+
+    result = subprocess.run(
+        [
+            "yt-dlp", "-x", "--audio-format", "mp3",
+            "-o", os.path.join(output_dir, "%(id)s.%(ext)s"),
+            url,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
     )
+
+    matches = glob.glob(os.path.join(output_dir, f"{video_id}*.mp3"))
+    if not matches:
+        if result.returncode != 0:
+            stderr_tail = (result.stderr or "").strip()[-200:]
+            print(
+                f"WARNING: yt-dlp audio extraction failed for {url} (exit {result.returncode}): {stderr_tail}",
+                file=sys.stderr,
+            )
+        return None
+    return matches[0]
+
+
+def _download_file_directly(url: str, output_dir: str) -> str | None:
+    filename = os.path.basename(url.split("?")[0])
+    if not filename:
+        return None
+    dest_path = os.path.join(output_dir, filename)
+    try:
+        response = requests.get(url, stream=True, timeout=60)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        print(f"WARNING: direct download failed for {url}: {exc}", file=sys.stderr)
+        return None
+
+    with open(dest_path, "wb") as f:
+        for chunk in response.iter_content(chunk_size=8192):
+            f.write(chunk)
+    return dest_path
+
+
+def transcribe_with_asr(audio_path: str) -> list[dict]:
+    model = WhisperModel(ASR_MODEL_SIZE, device="cpu", compute_type="int8")
+    segments, _ = model.transcribe(audio_path)
+    return [
+        {"start": seg.start, "end": seg.end, "text": seg.text.strip()}
+        for seg in segments
+    ]
 
 
 def get_transcript(manifest_entry: dict, output_dir: str) -> list[dict]:
@@ -77,11 +131,26 @@ def get_transcript(manifest_entry: dict, output_dir: str) -> list[dict]:
         segments = fetch_youtube_captions(manifest_entry["url"], output_dir)
         if segments is not None:
             return segments
-        return transcribe_with_asr(manifest_entry["url"])
+        audio_path = _download_audio(manifest_entry["url"], output_dir)
+        if audio_path is None:
+            raise NotImplementedError(
+                "ASR fallback failed: could not download audio for "
+                f"{manifest_entry['url']}"
+            )
+        return transcribe_with_asr(audio_path)
 
     if manifest_entry["type"] == "articulate_video":
         if manifest_entry["captions_available"]:
             raise NotImplementedError("VTT download from articulateusercontent.com not needed for Suture scope")
-        return transcribe_with_asr(manifest_entry["url"])
+        # Articulate-hosted media is served from a direct HTTPS file URL, not
+        # a YouTube page, so yt-dlp's site-specific extraction doesn't apply;
+        # fetch the raw file instead of going through _download_audio.
+        audio_path = _download_file_directly(manifest_entry["url"], output_dir)
+        if audio_path is None:
+            raise NotImplementedError(
+                "ASR fallback failed: could not download audio for "
+                f"{manifest_entry['url']}"
+            )
+        return transcribe_with_asr(audio_path)
 
     raise ValueError(f"Unsupported manifest entry type: {manifest_entry['type']}")

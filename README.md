@@ -10,6 +10,30 @@ to the source lesson and timestamp.
 
 ## Setup
 
+### System dependencies
+
+Beyond the Python packages, this project shells out to two binaries that must
+be installed on the system:
+
+- **ffmpeg** — used to extract keyframes from downloaded videos (and by
+  `yt-dlp` to merge separate video/audio streams).
+- **tesseract** — the actual OCR engine. The `pytesseract` pip package is only
+  a wrapper; without the binary, OCR calls fail. Image/frame OCR failures are
+  caught and logged, so the run degrades to "no text from that image" rather
+  than crashing, but you lose all OCR-derived chunks.
+
+On macOS: `brew install ffmpeg tesseract`.
+
+### Environment variables
+
+- **`GEMINI_API_KEY`** — used by the answer-generation step (Gemini). If it is
+  missing or misconfigured, generation fails and the demo falls back to
+  printing the top retrieved chunk's raw text. That is a legitimate
+  degraded-but-working mode, not a hard requirement — the retrieval and
+  citation parts of the demo still work without it.
+
+### Python setup
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate

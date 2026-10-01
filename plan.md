@@ -80,8 +80,11 @@ https://articulateusercontent.com/<key>
 where `<key>` is the `media.video.key` field from the JSON. Same pattern
 works for images and for VTT caption files referenced in `media.video.captions[].key`.
 
-**Important encoding gotcha:** keys contain double-encoded characters, e.g.
-`%2520` in the raw JSON. Decode this to `%20` before requesting the URL.
+**Important encoding gotcha:** keys contain what looks like double-encoded
+characters, e.g. `%2520` in the raw JSON. Use the key exactly as stored:
+the CDN serves `.../Tracheostomy%2520Care.mp4` (200) but returns 403 for the
+decoded `%20` form (re-checked 2026-10-01 on PCC videos, captions, images).
+Images with `useCrushedKey: true` must be fetched by `crushedKey`.
 
 **Caption availability is mixed even within PCC:** some videos have
 `media.video.captions` (e.g. AIDET, Medication Validation), most do not

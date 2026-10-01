@@ -18,7 +18,11 @@ dependencies = [
     "faster-whisper>=1.0",
     "pytesseract>=0.3.10",
     "google-genai>=1.0",
+    "reportlab>=4.0",
 ]
+
+[project.scripts]
+aicc-extract = "aicc_demo.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "responses>=0.25"]

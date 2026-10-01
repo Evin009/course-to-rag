@@ -150,8 +150,8 @@ def test_download_file_directly_returns_none_on_request_failure(tmp_path):
 
 
 def test_transcribe_with_asr_converts_whisper_segments_to_dicts():
-    fake_segment_1 = MagicMock(start=0.0, end=3.0, text=" Hold the needle driver like this. ")
-    fake_segment_2 = MagicMock(start=3.0, end=6.0, text=" Angle it at forty-five degrees. ")
+    fake_segment_1 = MagicMock(start=0.0, end=3.0, text=" Hold the needle driver like this. ", no_speech_prob=0.05)
+    fake_segment_2 = MagicMock(start=3.0, end=6.0, text=" Angle it at forty-five degrees. ", no_speech_prob=0.1)
     fake_model_instance = MagicMock()
     fake_model_instance.transcribe.return_value = ([fake_segment_1, fake_segment_2], MagicMock())
 
@@ -159,11 +159,27 @@ def test_transcribe_with_asr_converts_whisper_segments_to_dicts():
         result = transcribe_with_asr("/tmp/some_audio.mp3")
 
     mock_model_cls.assert_called_once_with("base", device="cpu", compute_type="int8")
-    fake_model_instance.transcribe.assert_called_once_with("/tmp/some_audio.mp3")
+    fake_model_instance.transcribe.assert_called_once_with("/tmp/some_audio.mp3", language="en", vad_filter=True)
     assert result == [
         {"start": 0.0, "end": 3.0, "text": "Hold the needle driver like this."},
         {"start": 3.0, "end": 6.0, "text": "Angle it at forty-five degrees."},
     ]
+
+
+def test_transcribe_with_asr_drops_music_and_unlikely_speech():
+    segments = [
+        MagicMock(start=0.0, end=2.0, text=" Music ", no_speech_prob=0.2),
+        MagicMock(start=2.0, end=4.0, text=" [Music] ", no_speech_prob=0.2),
+        MagicMock(start=4.0, end=6.0, text=" Don't forget to subscribe. ", no_speech_prob=0.9),
+        MagicMock(start=6.0, end=8.0, text=" Clean the stoma. ", no_speech_prob=0.1),
+    ]
+    model = MagicMock()
+    model.transcribe.return_value = (segments, MagicMock())
+
+    with patch("aicc_demo.audio.WhisperModel", return_value=model):
+        result = transcribe_with_asr("/tmp/a.mp4")
+
+    assert result == [{"start": 6.0, "end": 8.0, "text": "Clean the stoma."}]
 
 
 def test_get_transcript_uses_youtube_captions_for_youtube_entries(tmp_path):
@@ -231,12 +247,95 @@ def test_get_transcript_raises_not_implemented_when_articulate_audio_download_fa
             get_transcript(entry, str(tmp_path))
 
 
-def test_get_transcript_still_raises_for_articulate_video_with_captions(tmp_path):
+def test_get_transcript_downloads_bundled_articulate_captions_by_raw_key(tmp_path):
     entry = {
         "type": "articulate_video",
-        "url": "https://articulateusercontent.com/foo.mp4",
+        "url": "https://articulateusercontent.com/c/foo.mp4",
         "captions_available": True,
+        "caption_key": "c/AIDET%2520CAPTIONS.vtt",
     }
 
-    with pytest.raises(NotImplementedError):
-        get_transcript(entry, str(tmp_path))
+    def fake_download(url, output_dir):
+        path = tmp_path / "AIDET%2520CAPTIONS.vtt"
+        path.write_text(VTT_CONTENT)
+        return str(path)
+
+    with patch("aicc_demo.audio._download_file_directly", side_effect=fake_download) as mock_dl, \
+         patch("aicc_demo.audio.transcribe_with_asr") as mock_asr:
+        segments = get_transcript(entry, str(tmp_path))
+
+    mock_dl.assert_called_once_with("https://articulateusercontent.com/c/AIDET%2520CAPTIONS.vtt", str(tmp_path))
+    mock_asr.assert_not_called()
+    assert segments[0]["text"] == "Hold the needle driver like this."
+
+
+def test_get_transcript_falls_back_to_asr_when_articulate_captions_fail(tmp_path):
+    entry = {
+        "type": "articulate_video",
+        "url": "https://articulateusercontent.com/c/foo.mp4",
+        "captions_available": True,
+        "caption_key": "c/missing.vtt",
+    }
+
+    with patch("aicc_demo.audio._download_file_directly", side_effect=[None, "/fake/foo.mp4"]), \
+         patch("aicc_demo.audio.transcribe_with_asr", return_value=[{"start": 0, "end": 1, "text": "asr"}]) as mock_asr:
+        segments = get_transcript(entry, str(tmp_path))
+
+    mock_asr.assert_called_once_with("/fake/foo.mp4")
+    assert segments[0]["text"] == "asr"
+
+
+ROLLING_VTT = """WEBVTT
+
+00:00:01.000 --> 00:00:03.000
+hey guys welcome back
+
+00:00:03.000 --> 00:00:03.010
+hey guys welcome back
+
+00:00:03.010 --> 00:00:05.000
+hey guys welcome back
+to another video
+
+00:00:05.000 --> 00:00:07.000
+to another video
+on suturing
+"""
+
+
+def test_parse_vtt_drops_youtube_rolling_caption_repeats(tmp_path):
+    from aicc_demo.audio import _parse_vtt
+
+    vtt_path = tmp_path / "abc.en.vtt"
+    vtt_path.write_text(ROLLING_VTT)
+
+    segments = _parse_vtt(str(vtt_path))
+
+    assert [s["text"] for s in segments] == ["hey guys welcome back", "to another video", "on suturing"]
+    assert segments[1]["start"] == 3.01
+
+
+def test_download_file_directly_reuses_cached_file(tmp_path):
+    from aicc_demo.audio import _download_file_directly
+
+    cached = tmp_path / "clip.mp4"
+    cached.write_bytes(b"video")
+
+    with patch("aicc_demo.audio.requests.get") as mock_get:
+        assert _download_file_directly("https://articulateusercontent.com/c/clip.mp4", str(tmp_path)) == str(cached)
+
+    mock_get.assert_not_called()
+
+
+def test_download_file_directly_leaves_no_partial_file_on_failure(tmp_path):
+    import requests
+    from aicc_demo.audio import _download_file_directly
+
+    response = MagicMock()
+    response.raise_for_status.return_value = None
+    response.iter_content.side_effect = requests.ConnectionError("dropped")
+
+    with patch("aicc_demo.audio.requests.get", return_value=response):
+        assert _download_file_directly("https://articulateusercontent.com/c/clip.mp4", str(tmp_path)) is None
+
+    assert list(tmp_path.iterdir()) == []

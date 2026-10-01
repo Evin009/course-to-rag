@@ -1,5 +1,6 @@
 import glob
 import os
+import re
 import subprocess
 import sys
 
@@ -71,13 +72,26 @@ def fetch_youtube_captions(url: str, output_dir: str) -> list[dict] | None:
 
 
 def _parse_vtt(vtt_path: str) -> list[dict]:
+    """Parse a VTT file, dropping YouTube auto-caption "rolling" repeats.
 
+    Auto-generated captions show two lines at a time and scroll: each cue
+    repeats the previous cue's bottom line, plus a 10ms cue holding only
+    that line. Taken literally every sentence appears 2-3 times, which
+    inflates chunks, token counts and the PDF. Keep only lines the
+    previous cue did not already show.
+    """
     segments = []
+    previous_lines: list[str] = []
     for caption in webvtt.read(vtt_path):
+        lines = [line.strip() for line in caption.text.strip().split("\n") if line.strip()]
+        new_lines = [line for line in lines if line not in previous_lines]
+        previous_lines = lines
+        if not new_lines:
+            continue
         segments.append({
             "start": _timestamp_to_seconds(caption.start),
             "end": _timestamp_to_seconds(caption.end),
-            "text": caption.text.strip(),
+            "text": " ".join(new_lines),
         })
     return segments
 
@@ -115,25 +129,60 @@ def _download_file_directly(url: str, output_dir: str) -> str | None:
     if not filename:
         return None
     dest_path = os.path.join(output_dir, filename)
+    # Reuse an earlier download: Articulate-hosted videos are fetched by
+    # both the transcript and the frame steps, and again on every re-run.
+    if os.path.exists(dest_path) and os.path.getsize(dest_path) > 0:
+        return dest_path
+    os.makedirs(output_dir, exist_ok=True)
+    partial_path = dest_path + ".part"
     try:
         response = requests.get(url, stream=True, timeout=60)
         response.raise_for_status()
-    except requests.RequestException as exc:
+        # Write to a temporary name so an interrupted download is never
+        # mistaken for a complete cached file.
+        with open(partial_path, "wb") as f:
+            for chunk in response.iter_content(chunk_size=1 << 20):
+                f.write(chunk)
+    except (requests.RequestException, OSError) as exc:
         print(f"WARNING: direct download failed for {url}: {exc}", file=sys.stderr)
+        if os.path.exists(partial_path):
+            os.remove(partial_path)
+        return None
+    os.replace(partial_path, dest_path)
+    return dest_path
+
+
+def fetch_articulate_captions(caption_key: str, output_dir: str) -> list[dict] | None:
+    """Download and parse a VTT caption file bundled with an Articulate-hosted video."""
+    from aicc_demo.extractor import asset_url
+
+    vtt_path = os.path.join(output_dir, os.path.basename(caption_key))
+    if not os.path.exists(vtt_path):
+        vtt_path = _download_file_directly(asset_url(caption_key), output_dir)
+        if vtt_path is None:
+            return None
+    try:
+        return _parse_vtt(vtt_path)
+    except Exception as exc:
+        print(f"WARNING: could not parse captions {vtt_path}: {exc}", file=sys.stderr)
         return None
 
-    with open(dest_path, "wb") as f:
-        for chunk in response.iter_content(chunk_size=8192):
-            f.write(chunk)
-    return dest_path
+
+# Whisper invents text for audio with no speech: on PCC's music-only
+# procedure videos it returned "Music" 24 times, or a made-up "subscribe
+# to our channel" line. Skip non-speech audio (VAD) and drop segments the
+# model itself rates as probably not speech.
+MAX_NO_SPEECH_PROB = 0.6
+_NON_SPEECH_TEXT_RE = re.compile(r"^[\W_]*(?:music|applause|silence|laughter)?[\W_]*$", re.IGNORECASE)
 
 
 def transcribe_with_asr(audio_path: str) -> list[dict]:
     model = WhisperModel(ASR_MODEL_SIZE, device="cpu", compute_type="int8")
-    segments, _ = model.transcribe(audio_path)
+    segments, _ = model.transcribe(audio_path, language="en", vad_filter=True)
     return [
         {"start": seg.start, "end": seg.end, "text": seg.text.strip()}
         for seg in segments
+        if seg.no_speech_prob <= MAX_NO_SPEECH_PROB and not _NON_SPEECH_TEXT_RE.match(seg.text.strip())
     ]
 
 
@@ -152,7 +201,10 @@ def get_transcript(manifest_entry: dict, output_dir: str) -> list[dict]:
 
     if manifest_entry["type"] == "articulate_video":
         if manifest_entry["captions_available"]:
-            raise NotImplementedError("VTT download from articulateusercontent.com not needed for Suture scope")
+            segments = fetch_articulate_captions(manifest_entry["caption_key"], output_dir)
+            if segments:
+                return segments
+            # Caption file missing or empty: fall through to ASR.
         # Articulate-hosted media is served from a direct HTTPS file URL, not
         # a YouTube page, so yt-dlp's site-specific extraction doesn't apply;
         # fetch the raw file instead of going through _download_audio.

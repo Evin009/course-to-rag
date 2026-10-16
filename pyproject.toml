@@ -19,6 +19,7 @@ dependencies = [
     "pytesseract>=0.3.10",
     "google-genai>=1.0",
     "reportlab>=4.0",
+    "pypdf>=4.0",
 ]
 
 [project.scripts]

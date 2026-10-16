@@ -1,6 +1,10 @@
+import hashlib
+import html
 import json
 import os
 import re
+from typing import Callable
+
 import requests
 from bs4 import BeautifulSoup
 
@@ -28,7 +32,18 @@ _PLACEHOLDER_TEXT = {"subheading", "heading", "continue", "start", "summary"}
 # Labels a text block can carry. "title" is the lesson title, "section" a
 # Rise section header (a lesson with no content of its own).
 TEXT_LABELS = ("section", "title", "heading", "paragraph", "list_item")
-MEDIA_LABELS = ("image", "video")
+# "link" is an embed that is not a video (a web page, a document viewer).
+MEDIA_LABELS = ("image", "video", "attachment", "link")
+
+_IFRAME_SRC_RE = re.compile(r"""<iframe[^>]*\ssrc=["']([^"']+)["']""", re.IGNORECASE)
+_KALTURA_PARTNER_RE = re.compile(r"(?:/p/|partner_id[=/]|wid=_)(\d+)")
+_KALTURA_ENTRY_RE = re.compile(r"entry_id[=/]([0-9a-z]_[0-9a-z]+)", re.IGNORECASE)
+# Hosts whose embeds are videos yt-dlp can usually fetch. Anything else is
+# treated as a video only if Rise itself tagged the embed as one.
+_VIDEO_HOSTS = (
+    "kaltura", "vimeo.com", "panopto", "wistia", "loom.com", "brightcove",
+    "dailymotion", "mediaspace", "youtube.com", "youtu.be",
+)
 
 
 def parse_share_id(url_or_id: str) -> str:
@@ -43,13 +58,6 @@ def parse_share_id(url_or_id: str) -> str:
         f"Not an Articulate Rise share link: {url_or_id!r} "
         "(expected e.g. https://share.articulate.com/<id>)"
     )
-
-
-def _normalize_youtube_url(raw: str) -> str:
-    video_id = extract_youtube_id(raw)
-    if video_id:
-        return f"https://www.youtube.com/watch?v={video_id}"
-    return raw
 
 
 def fetch_course_json(share_id: str) -> dict:
@@ -92,7 +100,47 @@ def _is_placeholder(text: str) -> bool:
     return text.lower().startswith("lorem ipsum") or text.lower() in _PLACEHOLDER_TEXT
 
 
-def _media_entry(media: dict, lesson_id: str, lesson_title: str, order: int) -> dict | None:
+def classify_embed(embed: dict) -> dict | None:
+    """Work out what a Rise embed points at.
+
+    Returns {"type", "url", "media_key"} where type is "youtube", "kaltura"
+    (a yt-dlp `kaltura:<partner>:<entry>` id), "web_video" (another video
+    site, left to yt-dlp's generic support) or "link" (not a video).
+    `media_key` names the video's cached files on disk.
+    """
+    raw = html.unescape(embed.get("originalUrl") or embed.get("src") or "")
+    if not raw:
+        return None
+    iframe = _IFRAME_SRC_RE.search(raw)
+    url = html.unescape(iframe.group(1)) if iframe else raw.strip()
+    if url.startswith("//"):
+        url = "https:" + url
+
+    youtube_id = extract_youtube_id(raw)
+    if youtube_id:
+        return {"type": "youtube", "url": f"https://www.youtube.com/watch?v={youtube_id}", "media_key": youtube_id}
+
+    partner, entry = _KALTURA_PARTNER_RE.search(url), _KALTURA_ENTRY_RE.search(url)
+    if "kaltura" in url.lower() and partner and entry:
+        # yt-dlp rejects Kaltura's newer "embedPlaykitJs" player URLs but
+        # accepts this id form, and gets the captions and the video from it.
+        return {
+            "type": "kaltura",
+            "url": f"kaltura:{partner.group(1)}:{entry.group(1)}",
+            "page_url": url,
+            "media_key": f"kaltura-{entry.group(1)}",
+        }
+
+    if any(host in url.lower() for host in _VIDEO_HOSTS) or embed.get("embedType") == "video":
+        digest = hashlib.sha1(url.encode()).hexdigest()[:12]
+        return {"type": "web_video", "url": url, "media_key": f"web-{digest}"}
+
+    return {"type": "link", "url": url, "media_key": None}
+
+
+def _media_entry(
+    media: dict, lesson_id: str, lesson_title: str, order: int, assets: Callable[[str], str] = asset_url
+) -> dict | None:
     base = {
         "lesson_id": lesson_id,
         "lesson_title": lesson_title,
@@ -102,7 +150,8 @@ def _media_entry(media: dict, lesson_id: str, lesson_title: str, order: int) -> 
     }
 
     if "embed" in media and media["embed"].get("originalUrl"):
-        return {**base, "type": "youtube", "url": _normalize_youtube_url(media["embed"]["originalUrl"])}
+        target = classify_embed(media["embed"])
+        return {**base, **target} if target else None
 
     if "video" in media and media["video"].get("key"):
         video = media["video"]
@@ -110,9 +159,10 @@ def _media_entry(media: dict, lesson_id: str, lesson_title: str, order: int) -> 
         return {
             **base,
             "type": "articulate_video",
-            "url": asset_url(video["key"]),
+            "url": assets(video["key"]),
             "captions_available": bool(captions),
             "caption_key": captions[0]["key"] if captions else None,
+            "caption_url": assets(captions[0]["key"]) if captions else None,
         }
 
     if "image" in media and media["image"].get("key"):
@@ -122,7 +172,17 @@ def _media_entry(media: dict, lesson_id: str, lesson_title: str, order: int) -> 
         # Rise displays the "crushed" (re-compressed) copy when this flag is
         # set; for some uploads it is the only copy the CDN will serve.
         key = image["crushedKey"] if image.get("useCrushedKey") and image.get("crushedKey") else image["key"]
-        return {**base, "type": "image", "url": asset_url(key)}
+        return {**base, "type": "image", "url": assets(key)}
+
+    if "attachment" in media and media["attachment"].get("key"):
+        attachment = media["attachment"]
+        return {
+            **base,
+            "type": "attachment",
+            "url": assets(attachment["key"]),
+            "filename": attachment.get("originalUrl") or os.path.basename(attachment["key"]),
+            "mime_type": attachment.get("mimeType"),
+        }
 
     return None
 
@@ -130,9 +190,10 @@ def _media_entry(media: dict, lesson_id: str, lesson_title: str, order: int) -> 
 class _Walker:
     """Walks one lesson's nested Rise items into an ordered list of labeled blocks."""
 
-    def __init__(self, lesson_id: str, lesson_title: str):
+    def __init__(self, lesson_id: str, lesson_title: str, assets: Callable[[str], str] = asset_url):
         self.lesson_id = lesson_id
         self.lesson_title = lesson_title
+        self.assets = assets
         self.blocks: list[dict] = []
         self.media_order = 0
         self.last_heading: str | None = None
@@ -150,15 +211,20 @@ class _Walker:
     def _media(self, media: dict | None) -> None:
         if not media:
             return
-        entry = _media_entry(media, self.lesson_id, self.lesson_title, self.media_order)
+        entry = _media_entry(media, self.lesson_id, self.lesson_title, self.media_order, self.assets)
         if entry is None:
             return
         self.media_order += 1
-        label = "image" if entry["type"] == "image" else "video"
+        label = entry["type"] if entry["type"] in ("image", "attachment", "link") else "video"
         block = {"label": label, "media": entry}
-        if label == "video":
+        if label == "attachment":
+            block["title"] = entry["filename"]
+        elif label in ("video", "link"):
             embed_title = (media.get("embed") or {}).get("title")
             block["title"] = embed_title or self.last_heading or self.lesson_title
+            # A heading fallback is only a guess; export.py replaces it with
+            # the video's own title when the host can tell us (e.g. Kaltura).
+            block["title_is_guess"] = not embed_title
         self.blocks.append(block)
 
     def walk(self, items: list[dict], in_list: bool = False) -> None:
@@ -188,27 +254,31 @@ class _Walker:
                 self.walk(nested, in_list=item.get("type") == "list")
 
 
-def extract_blocks(lesson: dict) -> list[dict]:
+def extract_blocks(lesson: dict, assets: Callable[[str], str] = asset_url) -> list[dict]:
     """Return a lesson's content as ordered blocks labeled by type.
 
     Text blocks: {"label": heading|paragraph|list_item, "text": str}
-    Media blocks: {"label": image|video, "media": <manifest entry>, "title"?: str}
+    Media blocks: {"label": image|video|attachment|link, "media": <manifest entry>, "title"?: str}
+    `assets` turns a file key from the JSON into a URL (it differs between
+    share links and web exports; see sources.py).
     """
-    walker = _Walker(lesson["id"], lesson["title"])
+    walker = _Walker(lesson["id"], lesson["title"], assets)
     walker.walk(lesson.get("items") or [])
     return walker.blocks
 
 
-def walk_lesson(lesson: dict) -> tuple[str, list[dict]]:
-    blocks = extract_blocks(lesson)
+def walk_lesson(lesson: dict, assets: Callable[[str], str] = asset_url) -> tuple[str, list[dict]]:
+    blocks = extract_blocks(lesson, assets)
     text_lines = [b["text"] for b in blocks if "text" in b]
     manifest = [b["media"] for b in blocks if "media" in b]
     markdown = f"## {lesson['title']}\n\n" + "\n\n".join(text_lines)
     return markdown, manifest
 
 
-def extract_course(course_json: dict, source_url: str | None = None) -> dict:
-    """Turn the raw instant-links response into a clean, labeled course document."""
+def extract_course(
+    course_json: dict, source_url: str | None = None, assets: Callable[[str], str] = asset_url
+) -> dict:
+    """Turn the raw course JSON (share API or web export) into a clean, labeled course document."""
     course = course_json["course"]
     lessons = []
     for lesson in course.get("lessons") or []:
@@ -217,7 +287,7 @@ def extract_course(course_json: dict, source_url: str | None = None) -> dict:
             "id": lesson["id"],
             "title": strip_html(lesson.get("title") or "").strip(),
             "label": "section" if is_section else "title",
-            "blocks": [] if is_section else extract_blocks(lesson),
+            "blocks": [] if is_section else extract_blocks(lesson, assets),
         })
     return {
         "title": course.get("title") or "Untitled course",
@@ -250,7 +320,11 @@ def course_to_markdown(course: dict) -> str:
             elif label == "image":
                 lines += [f"![image]({block['media']['url']})", ""]
             elif label == "video":
-                lines += [f"[Video: {block['title']}]({block['media']['url']})", ""]
+                lines += [f"[Video: {block['title']}]({block['media'].get('page_url') or block['media']['url']})", ""]
+            elif label == "attachment":
+                lines += [f"[Attachment: {block['title']}]({block['media']['url']})", ""]
+            elif label == "link":
+                lines += [f"[Embedded content: {block['title']}]({block['media']['url']})", ""]
         if lines[-1].startswith("- "):
             lines.append("")
     return "\n".join(lines).rstrip() + "\n"

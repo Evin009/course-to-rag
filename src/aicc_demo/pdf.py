@@ -131,7 +131,8 @@ def interleave_transcript(transcript: list[dict], keyframes: list[dict]) -> list
 
 def _video_flowables(block: dict, lesson_title: str, s: dict) -> list:
     out = [CondPageBreak(6 * cm), _p(f"Video: {block['title']}", s["video"])]
-    out.append(_p(f"Lesson: {lesson_title} | Source: {block['media']['url']}", s["meta"]))
+    source = block["media"].get("page_url") or block["media"]["url"]
+    out.append(_p(f"Lesson: {lesson_title} | Source: {source}", s["meta"]))
     if "transcript" not in block and "keyframes" not in block:
         out.append(_p("(Video content not processed in this run.)", s["meta"]))
         return out
@@ -201,6 +202,22 @@ def course_flowables(course: dict) -> list:
                     out.append(KeepTogether(group))
             elif label == "video":
                 out += _video_flowables(block, lesson["title"], s)
+            elif label == "attachment":
+                out += _attachment_flowables(block, s)
+            elif label == "link":
+                out.append(_p(f"Embedded content: {block['title']} ({block['media']['url']})", s["meta"]))
+    return out
+
+
+def _attachment_flowables(block: dict, s: dict) -> list:
+    out = [CondPageBreak(4 * cm), _p(f"Attachment: {block['title']}", s["video"])]
+    out.append(_p(f"Source: {block['media']['url']}", s["meta"]))
+    text = block.get("text") or ""
+    if not text:
+        out.append(_p("(Text could not be extracted; see the linked file.)", s["meta"]))
+    for page in text.split("\n\n"):
+        if page.strip():
+            out.append(_p(page.strip(), s["body"]))
     return out
 
 

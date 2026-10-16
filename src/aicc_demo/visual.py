@@ -99,8 +99,13 @@ def caption_frame(frame_path: str) -> str:
     )
 
 
-def _download_video(url: str, output_dir: str) -> str | None:
-    video_id = extract_youtube_id(url)
+def _download_video(url: str, output_dir: str, key: str | None = None) -> str | None:
+    """Download a video: yt-dlp for embeds (named `<key>.<ext>`), direct HTTPS otherwise.
+
+    `key` defaults to the YouTube id; a URL with neither is a direct file
+    link (Articulate-hosted video).
+    """
+    video_id = key or extract_youtube_id(url)
     if video_id is None:
         # Not a YouTube URL: Articulate-hosted media is served from a direct
         # HTTPS file URL, so reuse the same direct-download helper audio.py
@@ -119,7 +124,7 @@ def _download_video(url: str, output_dir: str) -> str | None:
     result = subprocess.run(
         [
             "yt-dlp", "-f", "bv*[height<=480]+ba/b[height<=480]/b",
-            "-o", os.path.join(output_dir, "%(id)s.%(ext)s"),
+            "-o", os.path.join(output_dir, f"{video_id}.%(ext)s"),
             url,
         ],
         capture_output=True,
@@ -192,15 +197,16 @@ def process_video_visuals(
     block_order: int,
     output_dir: str,
     interval_seconds: int = DEFAULT_FRAME_INTERVAL_SECONDS,
+    key: str | None = None,
 ) -> list[Chunk]:
-    video_path = _download_video(video_url, output_dir)
+    video_path = _download_video(video_url, output_dir, key)
     if video_path is None:
         return []
 
     # Each video gets its own frame directory, so one video's frames can
     # never be picked up by another video's extraction glob (which would
     # attribute frame content to the wrong lesson at a fabricated time).
-    frame_dir = video_frame_dir(output_dir, video_url, interval_seconds)
+    frame_dir = video_frame_dir(output_dir, key or video_url, interval_seconds)
     frames = extract_frames(video_path, frame_dir, interval_seconds)
     surviving_frames = select_keyframes(frames)
 

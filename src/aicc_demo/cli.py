@@ -14,7 +14,10 @@ def build_parser() -> argparse.ArgumentParser:
         prog="aicc-extract",
         description="Extract an Articulate Rise course into labeled text and one interleaved PDF.",
     )
-    parser.add_argument("course_url", help="Articulate share link, e.g. https://share.articulate.com/<id>")
+    parser.add_argument(
+        "course_url",
+        help="Articulate share link (https://share.articulate.com/<id>) or URL of a web-exported Rise course",
+    )
     parser.add_argument("-o", "--output-dir", help="where to write outputs (default: data/<course-title>)")
     parser.add_argument(
         "--pdf-dir", default=DEFAULT_PDF_DIR,

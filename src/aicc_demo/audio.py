@@ -36,8 +36,13 @@ def _timestamp_to_seconds(ts: str) -> float:
     return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
 
 
-def fetch_youtube_captions(url: str, output_dir: str) -> list[dict] | None:
-    video_id = _extract_youtube_id(url)
+def fetch_youtube_captions(url: str, output_dir: str, key: str | None = None) -> list[dict] | None:
+    """Fetch English captions with yt-dlp: YouTube, Kaltura or any site it supports.
+
+    `key` names the cached files (`<key>.en.vtt`); it defaults to the
+    YouTube id, and is required for non-YouTube URLs.
+    """
+    video_id = key or _extract_youtube_id(url)
 
     # Reuse a VTT cached by an earlier run instead of re-invoking yt-dlp
     # for every video on every run (which gets the demo rate-limited).
@@ -48,10 +53,15 @@ def fetch_youtube_captions(url: str, output_dir: str) -> list[dict] | None:
     result = subprocess.run(
         [
             "yt-dlp",
+            # Uploaded captions first (Kaltura's are human-made), else
+            # YouTube's auto-generated ones; always saved as VTT.
+            "--write-subs",
             "--write-auto-sub",
             "--sub-lang", "en",
+            "--sub-format", "vtt/best",
+            "--convert-subs", "vtt",
             "--skip-download",
-            "-o", os.path.join(output_dir, "%(id)s.%(ext)s"),
+            "-o", os.path.join(output_dir, f"{video_id}.%(ext)s"),
             url,
         ],
         capture_output=True,
@@ -96,15 +106,18 @@ def _parse_vtt(vtt_path: str) -> list[dict]:
     return segments
 
 
-def _download_audio(url: str, output_dir: str) -> str | None:
-    video_id = extract_youtube_id(url)
+def _download_audio(url: str, output_dir: str, key: str | None = None) -> str | None:
+    video_id = key or extract_youtube_id(url)
     if video_id is None:
         return None
+    cached = glob.glob(os.path.join(output_dir, f"{video_id}*.mp3"))
+    if cached:
+        return cached[0]
 
     result = subprocess.run(
         [
             "yt-dlp", "-x", "--audio-format", "mp3",
-            "-o", os.path.join(output_dir, "%(id)s.%(ext)s"),
+            "-o", os.path.join(output_dir, f"{video_id}.%(ext)s"),
             url,
         ],
         capture_output=True,
@@ -152,13 +165,11 @@ def _download_file_directly(url: str, output_dir: str) -> str | None:
     return dest_path
 
 
-def fetch_articulate_captions(caption_key: str, output_dir: str) -> list[dict] | None:
+def fetch_articulate_captions(caption_url: str, output_dir: str) -> list[dict] | None:
     """Download and parse a VTT caption file bundled with an Articulate-hosted video."""
-    from aicc_demo.extractor import asset_url
-
-    vtt_path = os.path.join(output_dir, os.path.basename(caption_key))
+    vtt_path = os.path.join(output_dir, os.path.basename(caption_url.split("?")[0]))
     if not os.path.exists(vtt_path):
-        vtt_path = _download_file_directly(asset_url(caption_key), output_dir)
+        vtt_path = _download_file_directly(caption_url, output_dir)
         if vtt_path is None:
             return None
     try:
@@ -186,12 +197,17 @@ def transcribe_with_asr(audio_path: str) -> list[dict]:
     ]
 
 
+# Embedded videos fetched through yt-dlp: captions first, then Whisper.
+YTDLP_VIDEO_TYPES = ("youtube", "kaltura", "web_video")
+
+
 def get_transcript(manifest_entry: dict, output_dir: str) -> list[dict]:
-    if manifest_entry["type"] == "youtube":
-        segments = fetch_youtube_captions(manifest_entry["url"], output_dir)
+    if manifest_entry["type"] in YTDLP_VIDEO_TYPES:
+        key = manifest_entry.get("media_key")
+        segments = fetch_youtube_captions(manifest_entry["url"], output_dir, key)
         if segments is not None:
             return segments
-        audio_path = _download_audio(manifest_entry["url"], output_dir)
+        audio_path = _download_audio(manifest_entry["url"], output_dir, key)
         if audio_path is None:
             raise NotImplementedError(
                 "ASR fallback failed: could not download audio for "
@@ -201,7 +217,10 @@ def get_transcript(manifest_entry: dict, output_dir: str) -> list[dict]:
 
     if manifest_entry["type"] == "articulate_video":
         if manifest_entry["captions_available"]:
-            segments = fetch_articulate_captions(manifest_entry["caption_key"], output_dir)
+            from aicc_demo.extractor import asset_url
+
+            caption_url = manifest_entry.get("caption_url") or asset_url(manifest_entry["caption_key"])
+            segments = fetch_articulate_captions(caption_url, output_dir)
             if segments:
                 return segments
             # Caption file missing or empty: fall through to ASR.

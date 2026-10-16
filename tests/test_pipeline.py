@@ -27,7 +27,7 @@ def test_run_pipeline_walks_all_lessons_and_returns_chunks(tmp_path):
         }
     }
 
-    with patch("aicc_demo.pipeline.fetch_course_json", return_value=fake_course):
+    with patch("aicc_demo.sources.fetch_course_json", return_value=fake_course):
         chunks = run_pipeline("fake-share-id", str(tmp_path))
 
     assert len(chunks) == 1
@@ -44,7 +44,7 @@ def test_run_pipeline_skips_failed_transcript_and_keeps_successful_one(tmp_path)
                         {"media": {"embed": {"originalUrl": "https://www.youtube.com/watch?v=failvideo1"}}}
                     ]},
                     {"type": "multimedia", "items": [
-                        {"media": {"embed": {"originalUrl": "https://www.youtube.com/watch?v=okvideo111"}}}
+                        {"media": {"embed": {"originalUrl": "https://www.youtube.com/watch?v=okvideo1111"}}}
                     ]},
                 ]},
             ]
@@ -56,7 +56,7 @@ def test_run_pipeline_skips_failed_transcript_and_keeps_successful_one(tmp_path)
             raise NotImplementedError("no captions")
         return [{"start": 0.0, "end": 2.0, "text": "Tie the knot like this."}]
 
-    with patch("aicc_demo.pipeline.fetch_course_json", return_value=fake_course):
+    with patch("aicc_demo.sources.fetch_course_json", return_value=fake_course):
         with patch("aicc_demo.pipeline.get_transcript", side_effect=fake_get_transcript):
             chunks = run_pipeline("fake-share-id", str(tmp_path))
 
@@ -73,7 +73,7 @@ def test_run_pipeline_includes_visual_chunks_from_process_video_visuals(tmp_path
             "lessons": [
                 {"id": "l1", "title": "Knots", "items": [
                     {"type": "multimedia", "items": [
-                        {"media": {"embed": {"originalUrl": "https://www.youtube.com/watch?v=okvideo111"}}}
+                        {"media": {"embed": {"originalUrl": "https://www.youtube.com/watch?v=okvideo1111"}}}
                     ]},
                 ]},
             ]
@@ -90,14 +90,14 @@ def test_run_pipeline_includes_visual_chunks_from_process_video_visuals(tmp_path
     def fake_get_transcript(entry, output_dir):
         return [{"start": 0.0, "end": 2.0, "text": "Tie the knot like this."}]
 
-    with patch("aicc_demo.pipeline.fetch_course_json", return_value=fake_course):
+    with patch("aicc_demo.sources.fetch_course_json", return_value=fake_course):
         with patch("aicc_demo.pipeline.get_transcript", side_effect=fake_get_transcript):
             with patch("aicc_demo.pipeline.process_video_visuals", return_value=[fake_visual_chunk]) as mock_visuals:
                 chunks = run_pipeline("fake-share-id", str(tmp_path))
 
     assert fake_visual_chunk in chunks
     mock_visuals.assert_called_once_with(
-        "https://www.youtube.com/watch?v=okvideo111", "Knots", 0, str(tmp_path)
+        "https://www.youtube.com/watch?v=okvideo1111", "Knots", 0, str(tmp_path), key="okvideo1111"
     )
 
 
@@ -119,7 +119,7 @@ def test_run_pipeline_includes_image_chunks_from_process_image_entries(tmp_path)
         citation="Intro (image)",
     )
 
-    with patch("aicc_demo.pipeline.fetch_course_json", return_value=fake_course):
+    with patch("aicc_demo.sources.fetch_course_json", return_value=fake_course):
         with patch("aicc_demo.pipeline.process_image_entries", return_value=[fake_image_chunk]):
             chunks = run_pipeline("fake-share-id", str(tmp_path))
 
@@ -135,7 +135,7 @@ def test_run_pipeline_populates_stats_with_coverage_and_video_entries(tmp_path):
                         {"media": {"embed": {"originalUrl": "https://www.youtube.com/watch?v=failvideo1"}}}
                     ]},
                     {"type": "multimedia", "items": [
-                        {"media": {"embed": {"originalUrl": "https://www.youtube.com/watch?v=okvideo111"}}}
+                        {"media": {"embed": {"originalUrl": "https://www.youtube.com/watch?v=okvideo1111"}}}
                     ]},
                 ]},
             ]
@@ -148,7 +148,7 @@ def test_run_pipeline_populates_stats_with_coverage_and_video_entries(tmp_path):
         return [{"start": 0.0, "end": 2.0, "text": "Tie the knot like this."}]
 
     stats: dict = {}
-    with patch("aicc_demo.pipeline.fetch_course_json", return_value=fake_course):
+    with patch("aicc_demo.sources.fetch_course_json", return_value=fake_course):
         with patch("aicc_demo.pipeline.get_transcript", side_effect=fake_get_transcript):
             run_pipeline("fake-share-id", str(tmp_path), stats=stats)
 
@@ -166,7 +166,7 @@ def test_run_pipeline_sums_duration_from_transcript_segments_excluding_failures(
                         {"media": {"embed": {"originalUrl": "https://www.youtube.com/watch?v=failvideo1"}}}
                     ]},
                     {"type": "multimedia", "items": [
-                        {"media": {"embed": {"originalUrl": "https://www.youtube.com/watch?v=okvideo111"}}}
+                        {"media": {"embed": {"originalUrl": "https://www.youtube.com/watch?v=okvideo1111"}}}
                     ]},
                     {"type": "multimedia", "items": [
                         {"media": {"embed": {"originalUrl": "https://www.youtube.com/watch?v=okvideo222"}}}
@@ -179,7 +179,7 @@ def test_run_pipeline_sums_duration_from_transcript_segments_excluding_failures(
     def fake_get_transcript(entry, output_dir):
         if "failvideo1" in entry["url"]:
             raise NotImplementedError("no captions")
-        if "okvideo111" in entry["url"]:
+        if "okvideo1111" in entry["url"]:
             return [
                 {"start": 0.0, "end": 2.0, "text": "Tie the knot like this."},
                 {"start": 2.0, "end": 45.5, "text": "Now pull it tight."},
@@ -187,7 +187,7 @@ def test_run_pipeline_sums_duration_from_transcript_segments_excluding_failures(
         return [{"start": 0.0, "end": 120.0, "text": "Second video content."}]
 
     stats: dict = {}
-    with patch("aicc_demo.pipeline.fetch_course_json", return_value=fake_course):
+    with patch("aicc_demo.sources.fetch_course_json", return_value=fake_course):
         with patch("aicc_demo.pipeline.get_transcript", side_effect=fake_get_transcript):
             run_pipeline("fake-share-id", str(tmp_path), stats=stats)
 
@@ -227,7 +227,7 @@ def test_run_pipeline_still_processes_visuals_when_transcript_fails(tmp_path):
             raise NotImplementedError("no captions")
         return [{"start": 0.0, "end": 2.0, "text": "Some narration."}]
 
-    with patch("aicc_demo.pipeline.fetch_course_json", return_value=fake_course):
+    with patch("aicc_demo.sources.fetch_course_json", return_value=fake_course):
         with patch("aicc_demo.pipeline.get_transcript", side_effect=fake_get_transcript):
             with patch("aicc_demo.pipeline.process_video_visuals", return_value=[fake_visual_chunk]):
                 chunks = run_pipeline("fake-share-id", str(tmp_path))

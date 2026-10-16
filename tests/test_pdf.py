@@ -58,6 +58,12 @@ def test_render_course_pdf_writes_pdf_with_text_images_and_video(tmp_path):
                  "transcript": [_seg(1, 4, "watch this")],
                  "keyframes": [{"seconds": 0, "path": str(frame_path), "ocr": "Step 1"}]},
                 {"label": "video", "title": "Skipped", "media": {"url": "https://youtu.be/y"}},
+                {"label": "video", "title": "Kaltura", "media": {"url": "kaltura:1:1_a", "page_url": "https://kaltura.example/p"},
+                 "transcript": [_seg(0, 2, "big oh")], "keyframes": []},
+                {"label": "attachment", "title": "FindMin.pdf", "media": {"url": "https://s/assets/FindMin.pdf"},
+                 "text": "page one\n\npage two"},
+                {"label": "attachment", "title": "Empty.pdf", "media": {"url": "https://s/assets/Empty.pdf"}, "text": ""},
+                {"label": "link", "title": "Docs", "media": {"url": "https://docs.example/x"}},
             ]},
         ],
     }
@@ -67,6 +73,11 @@ def test_render_course_pdf_writes_pdf_with_text_images_and_video(tmp_path):
 
     data = pdf_path.read_bytes()
     assert data.startswith(b"%PDF")
+    from pypdf import PdfReader
+    text = " ".join(page.extract_text() for page in PdfReader(str(pdf_path)).pages)
+    assert "Attachment: FindMin.pdf" in text and "page two" in text
+    assert "https://kaltura.example/p" in text and "kaltura:1:1_a" not in text
+    assert "Embedded content: Docs" in text
     # The 2000px source image is re-encoded at most 1200px wide, so the
     # whole PDF stays small.
     assert len(data) < 200_000

@@ -82,15 +82,50 @@ def test_find_vtt_file_returns_none_when_no_video_id_given_even_if_a_vtt_exists(
 
 def test_download_audio_returns_path_to_downloaded_mp3(tmp_path):
     mp3_path = tmp_path / "abc12345678.mp3"
-    mp3_path.write_bytes(b"fake audio")
 
-    with patch("aicc_demo.audio.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stderr="")
+    def fake_run(*args, **kwargs):
+        mp3_path.write_bytes(b"fake audio")
+        return MagicMock(returncode=0, stderr="")
+
+    with patch("aicc_demo.audio.subprocess.run", side_effect=fake_run) as mock_run:
         with patch("aicc_demo.audio.extract_youtube_id", return_value="abc12345678"):
             result = _download_audio("https://www.youtube.com/watch?v=abc12345678", str(tmp_path))
 
     assert result == str(mp3_path)
     mock_run.assert_called_once()
+
+
+def test_download_audio_reuses_cached_mp3_and_names_files_by_key(tmp_path):
+    cached = tmp_path / "kaltura-1_abc.mp3"
+    cached.write_bytes(b"audio")
+
+    with patch("aicc_demo.audio.subprocess.run") as mock_run:
+        assert _download_audio("kaltura:1933811:1_abc", str(tmp_path), key="kaltura-1_abc") == str(cached)
+
+    mock_run.assert_not_called()
+
+
+def test_fetch_captions_uses_key_for_non_youtube_and_prefers_uploaded_subs(tmp_path):
+    def fake_run(args, **kwargs):
+        (tmp_path / "kaltura-1_abc.en.vtt").write_text(VTT_CONTENT)
+        return MagicMock(returncode=0, stderr="")
+
+    with patch("aicc_demo.audio.subprocess.run", side_effect=fake_run) as mock_run:
+        segments = fetch_youtube_captions("kaltura:1933811:1_abc", str(tmp_path), key="kaltura-1_abc")
+
+    args = mock_run.call_args[0][0]
+    assert "--write-subs" in args and "--write-auto-sub" in args
+    assert args[args.index("-o") + 1] == str(tmp_path / "kaltura-1_abc.%(ext)s")
+    assert segments[0]["text"] == "Hold the needle driver like this."
+
+
+def test_get_transcript_routes_kaltura_through_ytdlp_with_its_key(tmp_path):
+    entry = {"type": "kaltura", "url": "kaltura:1933811:1_abc", "media_key": "kaltura-1_abc"}
+
+    with patch("aicc_demo.audio.fetch_youtube_captions", return_value=[{"start": 0, "end": 1, "text": "hi"}]) as mock_fetch:
+        assert get_transcript(entry, str(tmp_path))[0]["text"] == "hi"
+
+    mock_fetch.assert_called_once_with("kaltura:1933811:1_abc", str(tmp_path), "kaltura-1_abc")
 
 
 def test_download_audio_returns_none_when_no_matching_file(tmp_path):
@@ -189,7 +224,7 @@ def test_get_transcript_uses_youtube_captions_for_youtube_entries(tmp_path):
     with patch("aicc_demo.audio.fetch_youtube_captions", return_value=fake_segments) as mock_fetch:
         result = get_transcript(entry, str(tmp_path))
 
-    mock_fetch.assert_called_once_with(entry["url"], str(tmp_path))
+    mock_fetch.assert_called_once_with(entry["url"], str(tmp_path), None)
     assert result == fake_segments
 
 
@@ -203,7 +238,7 @@ def test_get_transcript_downloads_and_transcribes_when_no_youtube_captions(tmp_p
             with patch("aicc_demo.audio.transcribe_with_asr", return_value=fake_segments) as mock_transcribe:
                 result = get_transcript(entry, str(tmp_path))
 
-    mock_download.assert_called_once_with(entry["url"], str(tmp_path))
+    mock_download.assert_called_once_with(entry["url"], str(tmp_path), None)
     mock_transcribe.assert_called_once_with(fake_audio_path)
     assert result == fake_segments
 

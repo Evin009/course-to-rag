@@ -74,7 +74,7 @@ def test_walk_lesson_extracts_youtube_video_into_manifest():
                 "items": [
                     {
                         "media": {
-                            "embed": {"originalUrl": "https://www.youtube.com/watch?v=abc123"}
+                            "embed": {"originalUrl": "https://www.youtube.com/watch?v=abc12345678"}
                         }
                     }
                 ],
@@ -89,7 +89,8 @@ def test_walk_lesson_extracts_youtube_video_into_manifest():
     assert entry["lesson_id"] == "lesson-2"
     assert entry["lesson_title"] == "Knot Tying"
     assert entry["type"] == "youtube"
-    assert entry["url"] == "https://www.youtube.com/watch?v=abc123"
+    assert entry["url"] == "https://www.youtube.com/watch?v=abc12345678"
+    assert entry["media_key"] == "abc12345678"
     assert entry["captions_available"] is False
     assert entry["block_order"] == 0
 
@@ -359,3 +360,63 @@ def test_image_uses_crushed_key_when_rise_does():
     _, manifest = walk_lesson(lesson)
 
     assert manifest[0]["url"] == "https://articulateusercontent.com/c/small.jpg"
+
+
+KALTURA_IFRAME = (
+    '<iframe src="https://cdnapisec.kaltura.com/p/1933811/embedPlaykitJs/uiconf_id/46805793'
+    '?iframeembed=true&amp;entry_id=1_x1qlfs9v" width="608"></iframe>'
+)
+
+
+@pytest.mark.parametrize("embed, expected", [
+    ({"originalUrl": KALTURA_IFRAME, "embedType": "iframe"},
+     {"type": "kaltura", "url": "kaltura:1933811:1_x1qlfs9v", "media_key": "kaltura-1_x1qlfs9v",
+      "page_url": "https://cdnapisec.kaltura.com/p/1933811/embedPlaykitJs/uiconf_id/46805793?iframeembed=true&entry_id=1_x1qlfs9v"}),
+    ({"originalUrl": "https://youtu.be/abcdefghijk"},
+     {"type": "youtube", "url": "https://www.youtube.com/watch?v=abcdefghijk", "media_key": "abcdefghijk"}),
+    ({"originalUrl": '<iframe src="//player.vimeo.com/video/123"></iframe>'},
+     {"type": "web_video", "url": "https://player.vimeo.com/video/123"}),
+    ({"originalUrl": "https://docs.google.com/document/d/x", "embedType": "link"},
+     {"type": "link", "url": "https://docs.google.com/document/d/x", "media_key": None}),
+])
+def test_classify_embed_sorts_youtube_kaltura_other_video_and_links(embed, expected):
+    from aicc_demo.extractor import classify_embed
+
+    result = classify_embed(embed)
+
+    for key, value in expected.items():
+        assert result[key] == value
+    if expected["type"] == "web_video":
+        assert result["media_key"].startswith("web-")
+
+
+def test_extract_blocks_uses_the_given_asset_url_for_images_attachments_and_captions():
+    assets = lambda key: f"https://site.example/c/assets/{key}"
+    lesson = {"id": "l", "title": "Big-Oh", "items": [
+        {"type": "image", "items": [{"media": {"image": {"key": "rise/x.jpg", "crushedKey": "x.png", "useCrushedKey": True}}}]},
+        {"type": "multimedia", "items": [{"media": {"attachment": {"key": "FindMin.pdf", "originalUrl": "FindMin.pdf", "mimeType": "application/pdf"}}}]},
+        {"type": "multimedia", "items": [{"media": {"video": {"key": "v.mp4", "captions": [{"key": "v.vtt"}]}}}]},
+        {"type": "multimedia", "items": [{"media": {"embed": {"originalUrl": "https://example.com/page"}}}]},
+    ]}
+
+    blocks = extract_blocks(lesson, assets)
+
+    assert [b["label"] for b in blocks] == ["image", "attachment", "video", "link"]
+    assert blocks[0]["media"]["url"] == "https://site.example/c/assets/x.png"
+    assert blocks[1]["media"]["url"] == "https://site.example/c/assets/FindMin.pdf"
+    assert blocks[1]["title"] == "FindMin.pdf"
+    assert blocks[2]["media"]["caption_url"] == "https://site.example/c/assets/v.vtt"
+
+
+def test_labeled_graphic_markers_become_paragraphs():
+    lesson = {"id": "l", "title": "RAM Model", "items": [{
+        "type": "interactive", "variant": "labeledgraphic",
+        "media": {"image": {"key": "2.jpg"}},
+        "items": [{"x": "81", "y": "8", "description": "<p>Formal definition first.</p>"},
+                  {"x": "57", "y": "38", "description": "<p>data[1] is the first entry.</p>"}],
+    }]}
+
+    blocks = extract_blocks(lesson)
+
+    assert [b["label"] for b in blocks] == ["image", "paragraph", "paragraph"]
+    assert blocks[2]["text"] == "data[1] is the first entry."

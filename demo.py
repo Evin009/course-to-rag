@@ -4,7 +4,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
+from aicc_demo.export import slugify
 from aicc_demo.extractor import parse_share_id
+from aicc_demo.sources import export_folder_url
 from aicc_demo.pipeline import (
     run_pipeline,
     estimate_raw_video_tokens,
@@ -16,22 +18,32 @@ from aicc_demo.generate import generate_answer
 DEFAULT_QUESTION = "How do I hold the needle driver when suturing?"
 
 
+def course_folder_name(link: str) -> str:
+    """Cache folder name: the share id, or the web export's folder name."""
+    try:
+        return parse_share_id(link)
+    except ValueError:
+        return slugify(export_folder_url(link).rstrip("/").rsplit("/", 1)[-1])
+
+
 def main():
     parser = argparse.ArgumentParser(description="Retrieval + citation demo for one Articulate course.")
-    parser.add_argument("course_url", help="Articulate share link, e.g. https://share.articulate.com/<id>")
+    parser.add_argument(
+        "course_url",
+        help="Articulate share link (https://share.articulate.com/<id>) or web-exported Rise course URL",
+    )
     parser.add_argument("question", nargs="?", default=DEFAULT_QUESTION)
-    parser.add_argument("-o", "--output-dir", help="download/cache folder (default: data/<share-id>)")
+    parser.add_argument("-o", "--output-dir", help="download/cache folder (default: data/<share-id or course folder>)")
     args = parser.parse_args()
+    question = args.question
+    output_dir = args.output_dir or f"data/{course_folder_name(args.course_url)}"
+
+    print(f"Extracting course ({args.course_url})...")
+    stats: dict = {}
     try:
-        share_id = parse_share_id(args.course_url)
+        chunks = run_pipeline(args.course_url, output_dir, stats=stats)
     except ValueError as exc:
         sys.exit(f"error: {exc}")
-    question = args.question
-    output_dir = args.output_dir or f"data/{share_id}"
-
-    print(f"Extracting course (share id: {share_id})...")
-    stats: dict = {}
-    chunks = run_pipeline(share_id, output_dir, stats=stats)
     print(f"Produced {len(chunks)} citable chunks.")
 
     attempted = stats.get("attempted", 0)

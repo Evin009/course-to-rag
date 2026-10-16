@@ -55,8 +55,20 @@ pytest
 python extract.py https://share.articulate.com/<share-id>
 ```
 
-Pass any Articulate Rise share link (`share.articulate.com/<id>`,
-`rise.articulate.com/share/<id>#/...`, or a bare share id). Outputs go to
+Pass any Articulate Rise course link. Two kinds work:
+
+- **Share links** hosted by Articulate (`share.articulate.com/<id>`,
+  `rise.articulate.com/share/<id>#/...`, or a bare share id). The course
+  JSON comes from Articulate's instant-links API.
+- **Web exports** hosted anywhere (Rise "Publish → Web", e.g.
+  `https://usfcourseresources.z13.web.core.windows.net/eng/cot5407/asymptotic/index.html`).
+  The course JSON is read from the export's `runtime-data.js` (base64 inside
+  a `__jsonp(...)` call) and files from its `assets/` folder.
+
+Videos embedded from YouTube, Kaltura or another site yt-dlp supports get
+captions (Whisper if there are none), keyframes and OCR; videos uploaded to
+Articulate use their bundled captions. PDF attachments have their text
+added to the course PDF. Outputs go to
 `data/<course-title>/` (override with `-o`), except the PDF:
 
 - `course_text.json` / `course_text.md` — course text labeled

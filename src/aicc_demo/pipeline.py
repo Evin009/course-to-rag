@@ -1,8 +1,9 @@
 import os
 import sys
 
-from aicc_demo.extractor import fetch_course_json, walk_lesson
-from aicc_demo.audio import get_transcript
+from aicc_demo.extractor import walk_lesson
+from aicc_demo.audio import YTDLP_VIDEO_TYPES, get_transcript
+from aicc_demo.sources import load_course
 from aicc_demo.assembly import Chunk, build_chunks, chunk_lesson_text
 from aicc_demo.images import process_image_entries
 from aicc_demo.visual import process_video_visuals
@@ -17,11 +18,14 @@ def estimate_chunk_tokens(chunks: list[Chunk], chars_per_token: float = 4.0) -> 
     return int(total_chars / chars_per_token)
 
 
-def run_pipeline(share_id: str, output_dir: str, stats: dict | None = None) -> list[Chunk]:
+VIDEO_TYPES = (*YTDLP_VIDEO_TYPES, "articulate_video")
+
+
+def run_pipeline(course_link: str, output_dir: str, stats: dict | None = None) -> list[Chunk]:
     """Run the extraction/transcription/chunking pipeline.
 
     If `stats` is provided, it is populated in place with:
-      - "attempted": total video entries (youtube + articulate_video) seen
+      - "attempted": total video entries (embedded + articulate_video) seen
       - "succeeded": how many of those produced a transcript
       - "video_entries": the flat list of all video manifest entries
       - "total_duration_seconds": sum of each successfully-transcribed
@@ -31,8 +35,8 @@ def run_pipeline(share_id: str, output_dir: str, stats: dict | None = None) -> l
         that were actually transcribed, same as "succeeded".
     """
     os.makedirs(output_dir, exist_ok=True)
-    course = fetch_course_json(share_id)
-    lessons = course["course"]["lessons"]
+    source = load_course(course_link)
+    lessons = source.course_json["course"]["lessons"]
 
     all_chunks: list[Chunk] = []
     all_video_entries: list[dict] = []
@@ -41,10 +45,10 @@ def run_pipeline(share_id: str, output_dir: str, stats: dict | None = None) -> l
     total_duration_seconds = 0.0
 
     for lesson in lessons:
-        markdown, manifest = walk_lesson(lesson)
+        markdown, manifest = walk_lesson(lesson, source.asset_url)
         all_chunks.extend(chunk_lesson_text(lesson["title"], markdown))
 
-        video_entries = [e for e in manifest if e["type"] in ("youtube", "articulate_video")]
+        video_entries = [e for e in manifest if e["type"] in VIDEO_TYPES]
         all_video_entries.extend(video_entries)
         transcripts = {}
         succeeded = 0
@@ -69,7 +73,9 @@ def run_pipeline(share_id: str, output_dir: str, stats: dict | None = None) -> l
             # of narration/captions, for every video, regardless of whether
             # a transcript was successfully produced above.
             all_chunks.extend(
-                process_video_visuals(entry["url"], lesson["title"], entry["block_order"], output_dir)
+                process_video_visuals(
+                    entry["url"], lesson["title"], entry["block_order"], output_dir, key=entry.get("media_key")
+                )
             )
 
         if video_entries:

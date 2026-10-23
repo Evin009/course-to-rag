@@ -28,6 +28,7 @@ from reportlab.platypus import (
 from PIL import Image as PILImage
 
 from aicc_demo.assembly import _format_timestamp
+from aicc_demo.images import flatten_to_rgb
 
 # Caption-track noise such as "[Music]" or "[Applause]".
 _SOUND_TAG_RE = re.compile(r"\[[^\]]{1,20}\]")
@@ -74,7 +75,7 @@ def _scaled_image(path: str, max_width: float, max_height: float) -> Image | Non
     """Fit an image into the box, re-encoding large originals so the PDF stays small."""
     try:
         with PILImage.open(path) as source:
-            picture = source.convert("RGB")
+            picture = flatten_to_rgb(source)
     except Exception:
         return None
     picture.thumbnail((MAX_EMBEDDED_IMAGE_PX, MAX_EMBEDDED_IMAGE_PX))
@@ -193,7 +194,7 @@ def course_flowables(course: dict) -> list:
                 out.append(_p(block["text"], s["body"]))
             elif label == "list_item":
                 out.append(Paragraph(escape(block["text"]), s["bullet"], bulletText="•"))
-            elif label == "image" and block.get("path"):
+            elif label == "image" and block.get("path") and not block.get("skip_reason"):
                 image = _scaled_image(block["path"], CONTENT_WIDTH, 9 * cm)
                 if image is not None:
                     group = [Spacer(1, 4), image]

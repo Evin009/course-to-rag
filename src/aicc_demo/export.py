@@ -1,5 +1,6 @@
 """Articulate course link (share link or web export) -> labeled course text + media -> one interleaved PDF."""
 import difflib
+import hashlib
 import json
 import logging
 import os
@@ -38,6 +39,14 @@ DEFAULT_PDF_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(o
 # text differs from the last kept frame's by more than MAX_TEXT_SIMILARITY.
 TEXT_CHECK_SECONDS = 30
 MAX_TEXT_SIMILARITY = 0.85
+
+# MD5s of Rise's stock placeholder images (block-defaults/mountains.jpg and
+# its thumbnail). A renamed copy in a web export has the same bytes, so a
+# downloaded image matching one of these is dropped whatever its name.
+RISE_DEFAULT_IMAGE_MD5 = {
+    "288b0d534865e6ca8aae11442f40f8c7",  # mountains.jpg
+    "6d9296103979afb593ecce6316dd4c9d",  # mountains_thumb.jpg
+}
 
 # Text pulled from an attached PDF is capped so one long handout cannot
 # swamp the course; the PDF still links to the full file.
@@ -172,11 +181,33 @@ def _process_video(block: dict, media_dir: str, interval_seconds: int, max_frame
     )
 
 
-def _process_image(block: dict, media_dir: str) -> None:
+def file_md5(path: str) -> str:
+    digest = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _process_image(block: dict, media_dir: str, seen_images: dict[str, str]) -> None:
+    """Download and OCR an image, unless it is a Rise placeholder or already shown.
+
+    `seen_images` maps the MD5 of every image already placed in this
+    course to where it appeared, so identical repeats (decorative images,
+    logos) are put in the PDF once.
+    """
     block["path"] = _download_file_directly(block["media"]["url"], media_dir)
     block["ocr"] = ""
     if block["path"] is None:
         return
+    digest = file_md5(block["path"])
+    if digest in RISE_DEFAULT_IMAGE_MD5:
+        block["skip_reason"] = "Rise placeholder image"
+        return
+    if digest in seen_images:
+        block["skip_reason"] = f"same image as {seen_images[digest]}"
+        return
+    seen_images[digest] = block["media"].get("lesson_title") or block["media"]["url"]
     try:
         block["ocr"] = clean_ocr_text(ocr_image(block["path"]))
     except Exception as exc:
@@ -230,10 +261,11 @@ def export_course(
     text_json, text_md = save_course_text(course, output_dir)
     print(f"Course: {course['title']} -> {output_dir}", file=sys.stderr)
 
+    seen_images: dict[str, str] = {}
     for lesson in course["lessons"]:
         for block in lesson["blocks"]:
             if block["label"] == "image":
-                _process_image(block, output_dir)
+                _process_image(block, output_dir, seen_images)
             elif block["label"] == "attachment":
                 _process_attachment(block, output_dir)
             elif block["label"] == "video" and include_video:

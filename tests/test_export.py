@@ -1,3 +1,4 @@
+from pathlib import Path
 import json
 from unittest.mock import MagicMock, patch
 
@@ -193,3 +194,33 @@ def test_pick_frames_skips_unchanged_text_and_blank_frames():
     frames = [f"f{i}" for i in range(7)]
     kept, _ = pick_frames(frames, ["f0"], lambda f: "" if f == "f6" else "same slide text", interval_seconds=5)
     assert kept == ["f0"]
+
+
+def _image_block(url, lesson="L"):
+    return {"label": "image", "media": {"url": url, "lesson_title": lesson}}
+
+
+def test_process_image_drops_rise_default_by_content_and_repeats(tmp_path):
+    import shutil
+    from PIL import Image
+    from aicc_demo.export import _process_image
+
+    renamed_default = tmp_path / "header-photo.jpg"  # Rise default under a new name
+    shutil.copy(Path(__file__).parent / "fixtures" / "rise_default_mountains.jpg", renamed_default)
+    real = tmp_path / "diagram.png"
+    Image.new("RGB", (40, 40), "navy").save(real)
+    repeat = tmp_path / "diagram-copy.png"
+    shutil.copy(real, repeat)
+    files = {"a": str(renamed_default), "b": str(real), "c": str(repeat)}
+    seen = {}
+
+    blocks = [_image_block("a"), _image_block("b", "Intro"), _image_block("c", "Big-Oh")]
+    with patch("aicc_demo.export._download_file_directly", side_effect=lambda url, d: files[url]), \
+         patch("aicc_demo.export.ocr_image", return_value="") as mock_ocr:
+        for block in blocks:
+            _process_image(block, str(tmp_path), seen)
+
+    assert blocks[0]["skip_reason"] == "Rise placeholder image"
+    assert "skip_reason" not in blocks[1]
+    assert blocks[2]["skip_reason"] == "same image as Intro"
+    assert mock_ocr.call_count == 1  # only the real, first-seen image is OCR'd

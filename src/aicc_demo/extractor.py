@@ -27,7 +27,19 @@ _BARE_SHARE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{10,}$")
 # it in would put "Lorem ipsum" and a stock mountain photo into the PDF the
 # LLM reads as course material.
 _DEFAULT_ASSET_PREFIX = "assets/rise/assets/block-defaults/"
+# A web export copies those defaults into its assets/ folder under their bare
+# file names (COT5407: "mountains.jpg" on every flashcard face, 14 times),
+# so the path check above no longer matches. Uploaded files keep a folder
+# path in share links, and an export's uploads are renamed to their
+# original upload names, which Rise's own default names won't collide with
+# in practice; export.py also checks downloaded bytes against the defaults.
+_DEFAULT_ASSET_NAMES = {"mountains.jpg", "mountains_thumb.jpg"}
 _PLACEHOLDER_TEXT = {"subheading", "heading", "continue", "start", "summary"}
+# Rise's built-in filler text. The second one is the default paragraph Rise
+# stores under heading-only text blocks (COT5407: 11 copies in one course).
+# Matched by text, not by block layout: skipping a layout's "other" field
+# also dropped real content in 5 places across the COT5407 courses.
+_PLACEHOLDER_PREFIXES = ("lorem ipsum", "when we show up to the present moment with all of our senses")
 
 # Labels a text block can carry. "title" is the lesson title, "section" a
 # Rise section header (a lesson with no content of its own).
@@ -97,7 +109,16 @@ def asset_url(key: str) -> str:
 
 
 def _is_placeholder(text: str) -> bool:
-    return text.lower().startswith("lorem ipsum") or text.lower() in _PLACEHOLDER_TEXT
+    lowered = " ".join(text.lower().split())
+    return lowered.startswith(_PLACEHOLDER_PREFIXES) or lowered in _PLACEHOLDER_TEXT
+
+
+def is_rise_default_image(image: dict) -> bool:
+    """True for Rise's stock placeholder picture (e.g. on text-only flashcards)."""
+    key = image.get("key") or ""
+    if key.startswith(_DEFAULT_ASSET_PREFIX):
+        return True
+    return "/" not in key and os.path.basename(key) in _DEFAULT_ASSET_NAMES
 
 
 def classify_embed(embed: dict) -> dict | None:
@@ -167,7 +188,7 @@ def _media_entry(
 
     if "image" in media and media["image"].get("key"):
         image = media["image"]
-        if image["key"].startswith(_DEFAULT_ASSET_PREFIX):
+        if is_rise_default_image(image):
             return None
         # Rise displays the "crushed" (re-compressed) copy when this flag is
         # set; for some uploads it is the only copy the CDN will serve.

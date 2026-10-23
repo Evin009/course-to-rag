@@ -74,3 +74,33 @@ def test_load_course_explains_a_site_without_a_course():
 
     with pytest.raises(ValueError, match="No Rise course found"):
         load_course("https://example.com/x/index.html")
+
+
+@responses.activate
+def test_load_course_follows_export_redirect_for_asset_urls():
+    responses.add(
+        responses.GET, "https://webapps.usf.edu/courseresources/c/runtime-data.js",
+        status=302, headers={"Location": "https://azure.example/c/runtime-data.js"},
+    )
+    responses.add(responses.GET, "https://azure.example/c/runtime-data.js", body=RUNTIME_DATA_JS, status=200)
+
+    source = load_course("https://webapps.usf.edu/courseresources/c/index.html")
+
+    assert source.location == "https://azure.example/c/"
+    assert source.asset_url("x.png") == "https://azure.example/c/assets/x.png"
+
+
+@responses.activate
+def test_load_course_resolves_old_rise_share_links():
+    responses.add(
+        responses.GET, "https://rise.articulate.com/share/KNQvqrENehitIzyIkT0R7E5npmNxddLz",
+        status=301, headers={"Location": "https://share.articulate.com/2pcpBY1Q5e3UfmBbJHpTZ"},
+    )
+    responses.add(
+        responses.POST, "https://share.articulate.com/api/instant-links/2pcpBY1Q5e3UfmBbJHpTZ/course",
+        json=COURSE, status=200,
+    )
+
+    source = load_course("https://rise.articulate.com/share/KNQvqrENehitIzyIkT0R7E5npmNxddLz")
+
+    assert source.kind == "share" and source.location == "2pcpBY1Q5e3UfmBbJHpTZ"

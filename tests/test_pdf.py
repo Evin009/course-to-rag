@@ -54,6 +54,8 @@ def test_render_course_pdf_writes_pdf_with_text_images_and_video(tmp_path):
                 {"label": "paragraph", "text": "Eye & body\nsecond line"},
                 {"label": "list_item", "text": "Point"},
                 {"label": "image", "media": {"url": "u"}, "path": str(image_path), "ocr": "Label"},
+                {"label": "image", "media": {"url": "d"}, "path": str(image_path), "ocr": "Placeholder",
+                 "skip_reason": "Rise placeholder image"},
                 {"label": "video", "title": "Demo", "media": {"url": "https://youtu.be/x"},
                  "transcript": [_seg(1, 4, "watch this")],
                  "keyframes": [{"seconds": 0, "path": str(frame_path), "ocr": "Step 1"}]},
@@ -78,6 +80,7 @@ def test_render_course_pdf_writes_pdf_with_text_images_and_video(tmp_path):
     assert "Attachment: FindMin.pdf" in text and "page two" in text
     assert "https://kaltura.example/p" in text and "kaltura:1:1_a" not in text
     assert "Embedded content: Docs" in text
+    assert "Placeholder" not in text  # skipped images are left out entirely
     # The 2000px source image is re-encoded at most 1200px wide, so the
     # whole PDF stays small.
     assert len(data) < 200_000

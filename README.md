@@ -91,6 +91,34 @@ iCloud Drive the editable install can be skipped: iCloud marks the venv's
 `.pth` files hidden and Python 3.13 ignores hidden `.pth` files, which is why
 `extract.py` and `demo.py` add `src/` to the path themselves.)
 
+## Extracting every course linked in a Canvas course
+
+```bash
+python canvas.py https://usflearn.instructure.com/courses/<course-id>                 # list
+python canvas.py https://usflearn.instructure.com/courses/<course-id> --extract all   # list + PDFs
+python canvas.py https://usflearn.instructure.com/courses/<course-id> --extract 1,3-5
+```
+
+Walks the course's modules through the Canvas REST API, reads every Page
+(and External URL) item, and lists, by module, the Rise courses the
+instructor linked: share links, old `rise.articulate.com/share/...` links
+(resolved to their current share link) and web exports (e.g.
+`webapps.usf.edu/courseresources/...`, which redirects to Azure).
+`--extract` runs the normal pipeline on the chosen courses; PDFs go to
+`pdf/`. One failing course does not stop the others. `--json FILE` saves
+the list.
+
+Canvas needs a login, so create a personal access token once: Canvas →
+Account → Settings → **+ New Access Token**, then put it in a `.env` file in
+the project root (git-ignored):
+
+```
+CANVAS_TOKEN=your-token-here
+```
+
+(or `export CANVAS_TOKEN=...`). Only discovery uses the token; the linked
+Rise courses are public.
+
 ### Frame sampling experiment
 
 ```bash

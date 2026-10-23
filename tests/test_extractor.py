@@ -420,3 +420,41 @@ def test_labeled_graphic_markers_become_paragraphs():
 
     assert [b["label"] for b in blocks] == ["image", "paragraph", "paragraph"]
     assert blocks[2]["text"] == "data[1] is the first entry."
+
+
+def test_web_export_renamed_default_flashcard_image_is_dropped():
+    # COT5407's export: Rise's stock picture on every text-only flashcard face,
+    # renamed from block-defaults/mountains.jpg to plain "mountains.jpg".
+    default = {"image": {"key": "mountains.jpg", "src": "mountains.jpg", "originalUrl": "mountains.jpg"}}
+    lesson = {"id": "l", "title": "Definitions", "items": [{"type": "interactive", "family": "flashcard", "items": [
+        {"front": {"description": "<p>algorithm</p>", "media": default},
+         "back": {"description": "<p>A finite procedure.</p>", "media": default}},
+    ]}]}
+
+    blocks = extract_blocks(lesson, lambda key: f"https://site.example/assets/{key}")
+
+    assert [b["label"] for b in blocks] == ["heading", "paragraph"]
+
+
+def test_real_upload_with_folder_path_is_never_treated_as_default():
+    from aicc_demo.extractor import is_rise_default_image
+
+    assert is_rise_default_image({"key": "assets/rise/assets/block-defaults/mountains.jpg"})
+    assert is_rise_default_image({"key": "mountains_thumb.jpg"})
+    assert not is_rise_default_image({"key": "rise/courses/abc/mountains.jpg"})
+    assert not is_rise_default_image({"key": "2.jpg"})
+
+
+def test_rise_filler_paragraph_is_dropped_but_real_text_in_any_layout_is_kept():
+    filler = ("<p>When we show up to the present moment with all of our senses, we invite the world\n"
+              "    to fill us with joy.</p>")
+    lesson = {"id": "l", "title": "Complexity", "items": [
+        {"type": "text", "variant": "heading", "items": [{"heading": "<p>Big-Oh Notation</p>", "paragraph": filler}]},
+        {"type": "text", "variant": "heading", "items": [
+            {"heading": "<p>Class P</p>", "paragraph": "<p>We have one more important detail to cover about class P.</p>"}]},
+        {"type": "text", "variant": "paragraph", "items": [{"heading": "<p>BAT 1: Safety</p>", "paragraph": "<p>Real body.</p>"}]},
+    ]}
+
+    assert [b["text"] for b in extract_blocks(lesson)] == [
+        "Big-Oh Notation", "Class P", "We have one more important detail to cover about class P.",
+        "BAT 1: Safety", "Real body."]

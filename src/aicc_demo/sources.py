@@ -21,6 +21,7 @@ import requests
 
 from aicc_demo.extractor import asset_url, fetch_course_json, parse_share_id
 
+_LEGACY_SHARE_RE = re.compile(r"rise\.articulate\.com/share/[A-Za-z0-9_-]{10,}")
 _RUNTIME_DATA_RE = re.compile(r'__jsonp\(\s*"runtime-data\.js"\s*,\s*"([A-Za-z0-9+/=]+)"\s*\)')
 
 
@@ -51,7 +52,12 @@ def decode_runtime_data(text: str) -> dict:
     return json.loads(base64.b64decode(match.group(1)).decode("utf-8"))
 
 
-def fetch_export_json(folder_url: str) -> dict:
+def fetch_export_json(folder_url: str) -> tuple[dict, str]:
+    """Course JSON of a web export, plus the folder it was really served from.
+
+    USF links (webapps.usf.edu/courseresources/...) redirect to the Azure
+    site; the files live under the final folder, so callers must use it.
+    """
     response = requests.get(folder_url + "runtime-data.js", timeout=60)
     if response.status_code == 404:
         raise ValueError(
@@ -59,7 +65,20 @@ def fetch_export_json(folder_url: str) -> dict:
             "(not a share.articulate.com link, and no runtime-data.js in that folder)"
         )
     response.raise_for_status()
-    return decode_runtime_data(response.text)
+    return decode_runtime_data(response.text), export_folder_url(response.url)
+
+
+def resolve_legacy_share_link(link: str) -> str:
+    """Current share.articulate.com link for an old rise.articulate.com/share/<id> link.
+
+    The id in old links is not a share id (the instant-links API returns
+    404 for it); the old URL redirects (301) to the current link.
+    """
+    response = requests.get(link, allow_redirects=False, timeout=30)
+    location = response.headers.get("Location", "")
+    if response.status_code in (301, 302, 303, 307, 308) and "share.articulate.com" in location:
+        return location
+    raise ValueError(f"Old Rise share link did not redirect to a current one: {link}")
 
 
 def export_asset_url(folder_url: str) -> Callable[[str], str]:
@@ -74,6 +93,8 @@ def export_asset_url(folder_url: str) -> Callable[[str], str]:
 def load_course(link: str) -> CourseSource:
     """Fetch a Rise course from a share link, a bare share id, or a web-export URL."""
     link = link.strip()
+    if _LEGACY_SHARE_RE.search(link):
+        link = resolve_legacy_share_link(link)
     try:
         share_id = parse_share_id(link)
     except ValueError:
@@ -86,5 +107,5 @@ def load_course(link: str) -> CourseSource:
             f"Not an Articulate Rise course link: {link!r} (expected a share.articulate.com "
             "link or the URL of a web-exported Rise course)"
         )
-    folder = export_folder_url(link)
-    return CourseSource("export", fetch_export_json(folder), export_asset_url(folder), folder)
+    course_json, folder = fetch_export_json(export_folder_url(link))
+    return CourseSource("export", course_json, export_asset_url(folder), folder)

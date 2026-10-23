@@ -1,13 +1,34 @@
 import sys
 
 import pytesseract
+from PIL import Image
 
 from aicc_demo.assembly import Chunk
 from aicc_demo.audio import _download_file_directly
 
 
+def flatten_to_rgb(image: Image.Image) -> Image.Image:
+    """RGB copy with any transparency composited onto white.
+
+    A plain convert("RGB") turns transparent pixels black, so a diagram
+    with black lines on a transparent background becomes all black (in the
+    PDF and for OCR); 95 of the COT5407 courses' PNGs are like this.
+    """
+    if image.mode in ("RGBA", "LA") or (image.mode == "P" and "transparency" in image.info):
+        rgba = image.convert("RGBA")
+        background = Image.new("RGB", rgba.size, "white")
+        background.paste(rgba, mask=rgba.getchannel("A"))
+        return background
+    return image.convert("RGB")
+
+
 def ocr_image(image_path: str) -> str:
-    text = pytesseract.image_to_string(image_path)
+    with Image.open(image_path) as image:
+        # Tesseract cannot read multi-frame (animated) GIFs. Algorithm
+        # animations end on their final state, so read the last frame.
+        if getattr(image, "n_frames", 1) > 1:
+            image.seek(image.n_frames - 1)
+        text = pytesseract.image_to_string(flatten_to_rgb(image))
     return text.strip()
 
 

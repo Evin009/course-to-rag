@@ -251,8 +251,15 @@ def export_course(
     max_frames_per_video: int | None = DEFAULT_MAX_FRAMES_PER_VIDEO,
     include_video: bool = True,
     pdf_dir: str = DEFAULT_PDF_DIR,
+    progress: Callable[[str], None] | None = None,
 ) -> dict:
-    """Run the whole flow for one course link and return the output paths."""
+    """Run the whole flow for one course link and return the output paths.
+
+    `progress`, if given, is called with short status lines ("Video 3 of 8")
+    so a UI can show where a long extraction is.
+    """
+    report = progress or (lambda message: None)
+    report("Fetching course")
     source = load_course(course_url)
     print(f"Fetched course ({source.kind}: {source.location})", file=sys.stderr)
     course = extract_course(source.course_json, source_url=course_url, assets=source.asset_url)
@@ -261,7 +268,12 @@ def export_course(
     text_json, text_md = save_course_text(course, output_dir)
     print(f"Course: {course['title']} -> {output_dir}", file=sys.stderr)
 
+    blocks = [block for lesson in course["lessons"] for block in lesson["blocks"]]
+    video_total = sum(block["label"] == "video" for block in blocks) if include_video else 0
+    image_total = sum(block["label"] == "image" for block in blocks)
+    report(f"Images and attachments ({image_total} images)")
     seen_images: dict[str, str] = {}
+    videos_done = 0
     for lesson in course["lessons"]:
         for block in lesson["blocks"]:
             if block["label"] == "image":
@@ -269,6 +281,8 @@ def export_course(
             elif block["label"] == "attachment":
                 _process_attachment(block, output_dir)
             elif block["label"] == "video" and include_video:
+                videos_done += 1
+                report(f"Video {videos_done} of {video_total}")
                 print(f"[{lesson['title']}] video: {block['media']['url']}", file=sys.stderr)
                 _process_video(block, output_dir, interval_seconds, max_frames_per_video)
                 print(f"  title: {block['title']}", file=sys.stderr)
@@ -277,13 +291,18 @@ def export_course(
     with open(package_path, "w", encoding="utf-8") as f:
         json.dump(course, f, indent=2, ensure_ascii=False)
 
+    report("Building PDF")
     os.makedirs(pdf_dir, exist_ok=True)
     pdf_path = os.path.join(pdf_dir, f"{slugify(course['title'])}.pdf")
     render_course_pdf(course, pdf_path)
     return {
+        "title": course["title"],
         "output_dir": output_dir,
         "course_text_json": text_json,
         "course_text_md": text_md,
         "course_package": package_path,
         "pdf": pdf_path,
+        "lessons": sum(lesson["label"] == "title" for lesson in course["lessons"]),
+        "videos": video_total,
+        "images": image_total,
     }

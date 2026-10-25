@@ -26,7 +26,8 @@ dependencies = [
 aicc-extract = "aicc_demo.cli:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "responses>=0.25"]
+dev = ["pytest>=8.0", "responses>=0.25", "httpx>=0.27"]
+web = ["fastapi>=0.115", "uvicorn[standard]>=0.30"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

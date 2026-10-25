@@ -6,3 +6,5 @@ data/
 .DS_Store
 pdf/
 .env
+web/node_modules/
+src/aicc_demo/web/static/

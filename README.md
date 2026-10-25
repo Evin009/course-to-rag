@@ -91,6 +91,26 @@ iCloud Drive the editable install can be skipped: iCloud marks the venv's
 `.pth` files hidden and Python 3.13 ignores hidden `.pth` files, which is why
 `extract.py` and `demo.py` add `src/` to the path themselves.)
 
+## Web UI
+
+```bash
+pip install -e ".[web]"                      # FastAPI + uvicorn
+cd web && npm install && npm run build && cd ..   # once, and after UI changes
+python webapp.py                             # opens http://127.0.0.1:8000
+```
+
+Create a project (named after the course) from a Canvas course URL or a
+single Rise link. The app lists every course it finds, grouped by Canvas
+module; tick rows (or select all), choose whether to include videos, and
+press **Extract**. Rows update live (queued → running "Video 3 of 8" →
+done / failed with Retry); SCORM packages are shown but can't be ticked.
+PDFs are saved in `pdf/<project-name>/` and can be downloaded per row or
+all at once as a zip. Projects are kept in `data/web/projects.json`.
+
+Two extractions run at a time; the same course listed in two projects is
+never extracted twice at once. For UI work, `npm run dev` (in `web/`) serves
+the frontend on :5173 with hot reload and forwards `/api` to `python webapp.py`.
+
 ## Extracting every course linked in a Canvas course
 
 ```bash

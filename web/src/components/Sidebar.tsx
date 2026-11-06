@@ -1,5 +1,5 @@
 import type { AppConfig, ProjectSummary } from "../types";
-import { LayersIcon, PlusIcon, Spinner } from "./Icons";
+import { LayersIcon, PlusIcon, Spinner, TrashIcon } from "./Icons";
 
 interface Props {
   projects: ProjectSummary[];
@@ -7,6 +7,7 @@ interface Props {
   config: AppConfig | null;
   onSelect: (id: string) => void;
   onNew: () => void;
+  onDelete: (project: ProjectSummary) => void;
 }
 
 function subtitle(p: ProjectSummary) {
@@ -18,7 +19,7 @@ function subtitle(p: ProjectSummary) {
   return `${p.total} ${p.total === 1 ? "course" : "courses"}${done ? ` · ${done} PDF${done === 1 ? "" : "s"}` : ""}`;
 }
 
-export function Sidebar({ projects, selectedId, config, onSelect, onNew }: Props) {
+export function Sidebar({ projects, selectedId, config, onSelect, onNew, onDelete }: Props) {
   return (
     <aside className="sidebar">
       <div className="brand">
@@ -35,11 +36,17 @@ export function Sidebar({ projects, selectedId, config, onSelect, onNew }: Props
         <div className="list-label">Projects</div>
         {projects.length === 0 && <p className="list-empty">No projects yet.</p>}
         {projects.map((p) => (
-          <button key={p.id} className={`project-item${p.id === selectedId ? " is-active" : ""}`}
-            onClick={() => onSelect(p.id)} aria-current={p.id === selectedId ? "page" : undefined}>
-            <span className="project-item-name">{p.name}</span>
-            <span className="project-item-sub">{subtitle(p)}</span>
-          </button>
+          <div key={p.id} className={`project-item${p.id === selectedId ? " is-active" : ""}`}>
+            <button className="project-item-main" onClick={() => onSelect(p.id)}
+              aria-current={p.id === selectedId ? "page" : undefined}>
+              <span className="project-item-name">{p.name}</span>
+              <span className="project-item-sub">{subtitle(p)}</span>
+            </button>
+            <button className="project-item-delete" aria-label={`Delete ${p.name}`} title="Delete project"
+              onClick={() => onDelete(p)}>
+              <TrashIcon size={14} />
+            </button>
+          </div>
         ))}
       </nav>
       <div className="sidebar-foot">

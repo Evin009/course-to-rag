@@ -23,6 +23,41 @@ def now() -> float:
     return round(time.time(), 3)
 
 
+def new_project(name: str, url: str, slug: str, course_key: str | None = None) -> dict:
+    return {
+        "id": new_id(),
+        "name": name,
+        "slug": slug,
+        "url": url,
+        "course_key": course_key,
+        "created_at": now(),
+        "scan": {"status": "idle", "error": None, "finished_at": None},
+        "links": [],
+    }
+
+
+def new_link(row: dict, position: int) -> dict:
+    """A table row for a course found by a scan."""
+    return {
+        "id": new_id(),
+        "status": "found" if row["extractable"] else "skipped",
+        "progress": "",
+        "error": None,
+        "problems": None,
+        "runner": None,
+        "pdf_path": None,
+        "pdf_size": None,
+        "course_title": None,
+        "lessons": None,
+        "videos": None,
+        "images": None,
+        "started_at": None,
+        "finished_at": None,
+        "position": position,
+        **row,
+    }
+
+
 class ProjectStore:
     def __init__(self, path: str):
         self.path = path
@@ -59,17 +94,9 @@ class ProjectStore:
             project = self._projects.get(project_id)
             return deepcopy(project) if project else None
 
-    def create(self, name: str, url: str, slug: str) -> dict:
+    def create(self, name: str, url: str, slug: str, course_key: str | None = None) -> dict:
         with self._lock:
-            project = {
-                "id": new_id(),
-                "name": name,
-                "slug": slug,
-                "url": url,
-                "created_at": now(),
-                "scan": {"status": "idle", "error": None, "finished_at": None},
-                "links": [],
-            }
+            project = new_project(name, url, slug, course_key)
             self._projects[project["id"]] = project
             self._save()
             return deepcopy(project)
@@ -97,22 +124,11 @@ class ProjectStore:
             previous = {link["course_url"]: link for link in project["links"]}
             links = []
             for position, row in enumerate(found, 1):
-                old = previous.get(row["course_url"])
-                link = old if old else {
-                    "id": new_id(),
-                    "status": "found" if row["extractable"] else "skipped",
-                    "progress": "",
-                    "error": None,
-                    "pdf_path": None,
-                    "pdf_size": None,
-                    "course_title": None,
-                    "lessons": None,
-                    "videos": None,
-                    "images": None,
-                    "started_at": None,
-                    "finished_at": None,
-                }
-                link.update(position=position, **row)
+                link = previous.get(row["course_url"])
+                if link:
+                    link.update(position=position, **row)
+                else:
+                    link = new_link(row, position)
                 links.append(link)
             project["links"] = links
             self._save()

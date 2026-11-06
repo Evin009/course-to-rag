@@ -8,3 +8,6 @@ pdf/
 .env
 web/node_modules/
 src/aicc_demo/web/static/
+*cookies*.txt
+pdf.zip
+cot5407_course.json

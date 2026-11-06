@@ -224,3 +224,44 @@ def test_process_image_drops_rise_default_by_content_and_repeats(tmp_path):
     assert "skip_reason" not in blocks[1]
     assert blocks[2]["skip_reason"] == "same image as Intro"
     assert mock_ocr.call_count == 1  # only the real, first-seen image is OCR'd
+
+
+def test_failed_video_is_reported_as_a_problem_not_silently_done(tmp_path):
+    from aicc_demo.export import _process_video
+
+    block = {"label": "video", "title": "Needle Parts",
+             "media": {"type": "youtube", "url": "https://www.youtube.com/watch?v=abc12345678", "media_key": "abc12345678"}}
+    with patch("aicc_demo.export.get_transcript", side_effect=RuntimeError("blocked")), \
+         patch("aicc_demo.export._download_video", return_value=None):
+        _process_video(block, str(tmp_path), 5, 15)
+
+    assert block["problem"].startswith("Needle Parts: no transcript, no frames")
+    assert "download blocked" in block["problem"]
+
+
+def test_video_without_speech_is_not_a_problem(tmp_path):
+    from aicc_demo.export import _process_video
+
+    frame = str(tmp_path / "frame_0001.jpg")
+    block = {"label": "video", "title": "Music only",
+             "media": {"type": "articulate_video", "url": "https://a/x.mp4"}}
+    with patch("aicc_demo.export.get_transcript", return_value=[]), \
+         patch("aicc_demo.export._download_video", return_value="/fake.mp4"), \
+         patch("aicc_demo.export.extract_frames", return_value=[frame]), \
+         patch("aicc_demo.export.select_keyframes", return_value=[frame]), \
+         patch("aicc_demo.export.ocr_image", return_value=""):
+        _process_video(block, str(tmp_path), 5, 15)
+
+    assert block["problem"] is None
+
+
+def test_export_course_returns_problems(tmp_path):
+    def fail_video(block, *args):
+        block["problem"] = "Knot video: no frames"
+
+    with patch("aicc_demo.sources.fetch_course_json", return_value=RAW_COURSE), \
+         patch("aicc_demo.export._process_video", side_effect=fail_video), \
+         patch("aicc_demo.export.render_course_pdf", side_effect=lambda course, path: path):
+        outputs = export_course("9enP3jMLBp-wenr5LIa0R", output_dir=str(tmp_path), pdf_dir=str(tmp_path / "pdf"))
+
+    assert outputs["problems"] == ["Knot video: no frames"]

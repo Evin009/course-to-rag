@@ -94,13 +94,21 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
 .project-list { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 2px; margin: 0 -4px; padding: 0 4px; }
 .list-label { font-size: 11px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); padding: 4px 8px 6px; }
 .list-empty { color: var(--faint); font-size: 13px; padding: 0 8px; margin: 0; }
-.project-item {
+.project-item { position: relative; display: flex; align-items: center; border-radius: var(--radius-sm); }
+.project-item:hover { background: var(--panel-2); }
+.project-item-main {
+  flex: 1; min-width: 0;
   display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
-  width: 100%; text-align: left;
-  padding: 8px 10px; border: 0; border-radius: var(--radius-sm);
+  text-align: left; padding: 8px 10px; border: 0; border-radius: var(--radius-sm);
   background: transparent; color: var(--text); font: inherit; cursor: pointer;
 }
-.project-item:hover { background: var(--panel-2); }
+.project-item-delete {
+  flex: none; display: grid; place-items: center; width: 28px; height: 28px; margin-right: 4px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--faint); cursor: pointer;
+  opacity: 0; transition: opacity 0.1s, background 0.1s, color 0.1s;
+}
+.project-item:hover .project-item-delete, .project-item-delete:focus-visible { opacity: 1; }
+.project-item-delete:hover { background: var(--danger-soft); color: var(--danger); }
 .project-item.is-active { background: var(--accent-soft); }
 .project-item-name { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .project-item.is-active .project-item-name { color: var(--accent-text); }
@@ -153,7 +161,6 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
 .stat-muted strong { color: var(--muted); }
 .stat-note { font-size: 12px; color: var(--faint); margin-left: 4px; }
 .project-actions { display: flex; align-items: center; gap: 4px; flex: none; }
-.confirm { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--danger); padding-left: 6px; }
 
 /* ---------- toolbar ---------- */
 .toolbar {
@@ -231,6 +238,12 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
 .pill-running { color: var(--accent-text); background: var(--accent-soft); }
 .pill-queued { color: var(--muted); background: var(--panel-2); border: 1px solid var(--border); }
 .pill-done { color: var(--ok); background: var(--ok-soft); }
+.status-offline { color: var(--warn); white-space: normal; }
+.pill-warn { color: var(--warn); background: var(--warn-soft); }
+.problems { font-size: 12px; color: var(--warn); max-width: 100%; }
+.problems summary { cursor: pointer; }
+.problems ul { margin: 4px 0 0; padding-left: 16px; color: var(--muted); }
+.problems li { margin-bottom: 2px; overflow-wrap: anywhere; }
 .pill-failed { color: var(--danger); background: var(--danger-soft); }
 .pill-skipped { color: var(--faint); background: var(--panel-2); border: 1px solid var(--border); }
 
@@ -248,6 +261,8 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
 .banner-error { background: var(--danger-soft); color: var(--danger); }
 .banner-error strong { font-weight: 650; }
 .banner-warn { background: var(--warn-soft); color: var(--warn); }
+.banner-info { background: var(--info-soft); color: var(--info); align-items: center; }
+.banner-info strong { font-weight: 650; }
 .banner .btn { flex: none; }
 .scanning { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); }
 .scanning-head { display: flex; gap: 12px; align-items: flex-start; color: var(--accent-text); margin-bottom: 14px; }
@@ -295,6 +310,10 @@ h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
 .hint-canvas, .hint-share, .hint-export { color: var(--accent-text); }
 .hint-invalid { color: var(--danger); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+.dialog-narrow { width: min(460px, 100%); }
+.check-row { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; margin-bottom: 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; }
+.check-row .checkbox { margin-top: 2px; }
+.check-hint { display: block; font-size: 12.5px; color: var(--muted); margin-top: 2px; }
 @keyframes fade { from { opacity: 0; } }
 @keyframes rise { from { opacity: 0; transform: translateY(6px) scale(0.99); } }
 

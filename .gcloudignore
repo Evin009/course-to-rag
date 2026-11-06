@@ -1,0 +1,17 @@
+# Sent to Cloud Build by `gcloud builds submit` (deploy/gcp.sh)
+.git
+.venv/
+**/__pycache__/
+*.pyc
+*.egg-info/
+data/
+pdf/
+pdf.zip
+cot5407_course.json
+web/node_modules/
+src/aicc_demo/web/static/
+tests/
+docs/
+.env
+.DS_Store
+*cookies*.txt

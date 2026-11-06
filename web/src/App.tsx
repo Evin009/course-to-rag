@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
+import { DeleteProjectDialog } from "./components/DeleteProjectDialog";
 import { NewProjectDialog } from "./components/NewProjectDialog";
 import { ProjectView } from "./components/ProjectView";
 import { Sidebar } from "./components/Sidebar";
@@ -7,6 +8,7 @@ import { Welcome } from "./components/Welcome";
 import type { AppConfig, Project, ProjectSummary } from "./types";
 
 const POLL_MS = 1500;
+
 
 function isBusy(p: Project | null) {
   return !!p && (p.scan.status === "scanning" || p.links.some((l) => l.status === "queued" || l.status === "running"));
@@ -18,6 +20,7 @@ export default function App() {
   const [project, setProject] = useState<Project | null>(null);
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [showNew, setShowNew] = useState(false);
+  const [deleting, setDeleting] = useState<ProjectSummary | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now() / 1000);
 
@@ -74,12 +77,14 @@ export default function App() {
 
   return (
     <div className="app">
-      <Sidebar projects={projects} selectedId={selectedId} config={config} onSelect={setSelectedId} onNew={() => setShowNew(true)} />
+      <Sidebar projects={projects} selectedId={selectedId} config={config} onSelect={setSelectedId}
+        onNew={() => setShowNew(true)} onDelete={setDeleting} />
       <main className="main">
         {project ? (
           <ProjectView
             key={project.id}
             project={project}
+            config={config}
             now={now}
             onRescan={async () => {
               try { update(await api.rescan(project.id)); } catch (e) { notify((e as Error).message); }
@@ -87,21 +92,31 @@ export default function App() {
             onExtract={async (ids, textOnly) => {
               try { update(await api.extract(project.id, ids, textOnly)); } catch (e) { notify((e as Error).message); }
             }}
-            onDelete={async () => {
-              try {
-                await api.deleteProject(project.id);
-                const list = await refreshList();
-                setSelectedId(list[0]?.id ?? null);
-              } catch (e) { notify((e as Error).message); }
-            }}
+            onRequestDelete={() => setDeleting(projects.find((p) => p.id === project.id) ?? project)}
           />
         ) : (
           <Welcome onNew={() => setShowNew(true)} />
         )}
       </main>
+      {deleting && (
+        <DeleteProjectDialog
+          project={deleting}
+          pdfLocation={config ? config.pdf_location.replace("{folder}", deleting.slug) : null}
+          onCancel={() => setDeleting(null)}
+          onConfirm={async (deletePdfs) => {
+            await api.deleteProject(deleting.id, deletePdfs);
+            setDeleting(null);
+            notify(`Deleted “${deleting.name}”${deletePdfs ? " and its PDFs" : ""}`);
+            const list = await refreshList();
+            if (deleting.id === selectedId) setSelectedId(list[0]?.id ?? null);
+          }}
+        />
+      )}
       {showNew && (
         <NewProjectDialog
           config={config}
+          projects={projects}
+          onOpenExisting={(id) => { setShowNew(false); setSelectedId(id); }}
           onCancel={() => setShowNew(false)}
           onCreate={async (name, url) => {
             const created = await api.createProject(name, url);

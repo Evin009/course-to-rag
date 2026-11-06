@@ -1,22 +1,29 @@
 import { useEffect, useRef, useState } from "react";
-import { detectUrl, suggestName } from "../format";
-import type { AppConfig } from "../types";
+import { ApiError } from "../api";
+import { courseKey, detectUrl, suggestName } from "../format";
+import type { AppConfig, ProjectSummary } from "../types";
 import { AlertIcon, Spinner, XIcon } from "./Icons";
 
 interface Props {
   config: AppConfig | null;
+  projects: ProjectSummary[];
   onCancel: () => void;
   onCreate: (name: string, url: string) => Promise<void>;
+  onOpenExisting: (projectId: string) => void;
 }
 
-export function NewProjectDialog({ config, onCancel, onCreate }: Props) {
+export function NewProjectDialog({ config, projects, onCancel, onCreate, onOpenExisting }: Props) {
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [nameTouched, setNameTouched] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [serverDuplicate, setServerDuplicate] = useState<{ id: string; name: string } | null>(null);
   const urlRef = useRef<HTMLInputElement>(null);
   const detected = detectUrl(url);
+  const key = detected.kind === "invalid" || detected.kind === "empty" ? "" : courseKey(url);
+  const localDuplicate = key ? projects.find((p) => p.course_key === key) : undefined;
+  const duplicate = localDuplicate ? { id: localDuplicate.id, name: localDuplicate.name } : serverDuplicate;
 
   useEffect(() => {
     urlRef.current?.focus();
@@ -29,7 +36,9 @@ export function NewProjectDialog({ config, onCancel, onCreate }: Props) {
     if (!nameTouched) setName(suggestName(url));
   }, [url, nameTouched]);
 
-  const canSubmit = name.trim() && detected.kind !== "invalid" && detected.kind !== "empty" && !saving;
+  useEffect(() => setServerDuplicate(null), [url]);
+
+  const canSubmit = name.trim() && detected.kind !== "invalid" && detected.kind !== "empty" && !duplicate && !saving;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,7 +48,12 @@ export function NewProjectDialog({ config, onCancel, onCreate }: Props) {
     try {
       await onCreate(name.trim(), url.trim());
     } catch (err) {
-      setError((err as Error).message);
+      const data = err instanceof ApiError ? err.data : {};
+      if (typeof data.project_id === "string") {
+        setServerDuplicate({ id: data.project_id, name: String(data.project_name ?? "") });
+      } else {
+        setError((err as Error).message);
+      }
       setSaving(false);
     }
   };
@@ -63,6 +77,14 @@ export function NewProjectDialog({ config, onCancel, onCreate }: Props) {
             <span className={`field-hint hint-${detected.kind}`}>{detected.label}</span>
           )}
         </label>
+
+        {duplicate && (
+          <div className="banner banner-info">
+            <AlertIcon size={16} />
+            <div>This course already has a project, <strong>“{duplicate.name}”</strong>. Each course gets one project, so its PDFs stay in one folder.</div>
+            <button type="button" className="btn btn-small" onClick={() => onOpenExisting(duplicate.id)}>Open it</button>
+          </div>
+        )}
 
         {detected.kind === "canvas" && config && !config.canvas_token && (
           <div className="banner banner-warn">

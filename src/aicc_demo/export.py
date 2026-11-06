@@ -147,6 +147,12 @@ def _read_frame_text(frame_path: str) -> str:
         return ""
 
 
+def _video_problem(block: dict, missing: list[str]) -> str:
+    """One line for the UI saying what a video is missing, e.g. a failed YouTube download."""
+    hint = " (YouTube: video removed or download blocked)" if block["media"]["type"] == "youtube" else ""
+    return f"{block['title']}: {', '.join(missing)}{hint}"
+
+
 def _process_video(block: dict, media_dir: str, interval_seconds: int, max_frames: int | None) -> None:
     entry = block["media"]
     if block.get("title_is_guess") and entry["type"] in ("kaltura", "web_video"):
@@ -154,16 +160,21 @@ def _process_video(block: dict, media_dir: str, interval_seconds: int, max_frame
             block["title"] = video_title(entry["url"]) or block["title"]
         except (OSError, subprocess.SubprocessError) as exc:
             print(f"  WARNING: could not read title for {entry['url']}: {exc}", file=sys.stderr)
+    missing = []
+    block["problem"] = None
     try:
         block["transcript"] = get_transcript(entry, media_dir)
     except Exception as exc:
         print(f"  WARNING: transcript failed for {entry['url']}: {exc}", file=sys.stderr)
         block["transcript"] = []
+        missing.append("no transcript")
 
     block["keyframes"] = []
     key = entry.get("media_key")
     video_path = _download_video(entry["url"], media_dir, key)
     if video_path is None:
+        missing.append("no frames")
+        block["problem"] = _video_problem(block, missing)
         return
     frame_dir = video_frame_dir(media_dir, key or entry["url"], interval_seconds)
     frames = extract_frames(video_path, frame_dir, interval_seconds)
@@ -174,6 +185,10 @@ def _process_video(block: dict, media_dir: str, interval_seconds: int, max_frame
         for frame in kept
     ]
     block["keyframes"] = choose_keyframes(candidates, max_frames)
+    if not frames:
+        missing.append("no frames")
+    if missing:
+        block["problem"] = _video_problem(block, missing)
     print(
         f"  frames: {len(frames)} sampled -> {len(distinct)} distinct by image"
         f" + {len(kept) - len(distinct)} by text -> {len(block['keyframes'])} in PDF",
@@ -305,4 +320,7 @@ def export_course(
         "lessons": sum(lesson["label"] == "title" for lesson in course["lessons"]),
         "videos": video_total,
         "images": image_total,
+        # Parts of the course missing from the PDF. The PDF is still built,
+        # so callers must show these or a failed video looks like a success.
+        "problems": [block["problem"] for block in blocks if block.get("problem")],
     }

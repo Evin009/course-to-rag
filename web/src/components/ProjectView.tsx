@@ -1,24 +1,24 @@
 import { useMemo, useState } from "react";
 import { api } from "../api";
 import { formatAgo } from "../format";
-import type { Link, Project } from "../types";
+import type { AppConfig, Link, Project } from "../types";
 import { Checkbox } from "./Checkbox";
 import { AlertIcon, DownloadIcon, ExternalIcon, FileIcon, RefreshIcon, Spinner, TrashIcon } from "./Icons";
 import { LinksTable, selectable } from "./LinksTable";
 
 interface Props {
   project: Project;
+  config: AppConfig | null;
   now: number;
   onRescan: () => Promise<void>;
   onExtract: (linkIds: string[], textOnly: boolean) => Promise<void>;
-  onDelete: () => Promise<void>;
+  onRequestDelete: () => void;
 }
 
-export function ProjectView({ project, now, onRescan, onExtract, onDelete }: Props) {
+export function ProjectView({ project, config, now, onRescan, onExtract, onRequestDelete }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [withVideos, setWithVideos] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const pickable = project.links.filter(selectable);
   // Drop selections that stopped being selectable (e.g. now running).
@@ -65,18 +65,9 @@ export function ProjectView({ project, now, onRescan, onExtract, onDelete }: Pro
           <button className="btn btn-ghost" onClick={() => void onRescan()} disabled={scanning}>
             <RefreshIcon size={15} /> Rescan
           </button>
-          {confirmDelete ? (
-            <span className="confirm">
-              Delete project?
-              <button className="btn btn-danger btn-small" onClick={() => void onDelete()}>Delete</button>
-              <button className="btn btn-ghost btn-small" onClick={() => setConfirmDelete(false)}>Cancel</button>
-            </span>
-          ) : (
-            <button className="btn btn-ghost btn-icon" aria-label="Delete project" title="Delete project"
-              onClick={() => setConfirmDelete(true)}>
-              <TrashIcon size={15} />
-            </button>
-          )}
+          <button className="btn btn-ghost" onClick={onRequestDelete} title="Delete project">
+            <TrashIcon size={15} /> Delete
+          </button>
         </div>
       </header>
 
@@ -138,7 +129,8 @@ export function ProjectView({ project, now, onRescan, onExtract, onDelete }: Pro
             now={now}
           />
           <p className="footnote">
-            PDFs are saved on this computer in <code>pdf/{project.slug}/</code>.
+            {config?.mode === "cloud" ? "PDFs are saved to Cloud Storage in " : "PDFs are saved on this computer in "}
+            <code>{(config?.pdf_location ?? "pdf/{folder}/").replace("{folder}", project.slug)}</code>.
             {!withVideos && " Videos are skipped: transcripts and frames won’t be in these PDFs."}
           </p>
         </>

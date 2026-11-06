@@ -52,6 +52,8 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    for problem in outputs.get("problems", []):
+        print(f"Missing from PDF: {problem}")
     print(f"Course text: {outputs['course_text_md']}")
     print(f"PDF:         {outputs['pdf']}")
     return 0

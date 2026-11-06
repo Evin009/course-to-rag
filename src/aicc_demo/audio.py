@@ -8,7 +8,7 @@ import requests
 import webvtt
 from faster_whisper import WhisperModel
 
-from aicc_demo.utils import extract_youtube_id
+from aicc_demo.utils import extract_youtube_id, ytdlp_cookie_args
 
 # "base" is a deliberate accuracy/speed trade-off for CPU inference in a demo:
 # "tiny" is noticeably less accurate, "large" is too slow without a GPU.
@@ -52,7 +52,7 @@ def fetch_youtube_captions(url: str, output_dir: str, key: str | None = None) ->
 
     result = subprocess.run(
         [
-            "yt-dlp",
+            "yt-dlp", *ytdlp_cookie_args(url),
             # Uploaded captions first (Kaltura's are human-made), else
             # YouTube's auto-generated ones; always saved as VTT.
             "--write-subs",
@@ -116,7 +116,7 @@ def _download_audio(url: str, output_dir: str, key: str | None = None) -> str | 
 
     result = subprocess.run(
         [
-            "yt-dlp", "-x", "--audio-format", "mp3",
+            "yt-dlp", *ytdlp_cookie_args(url), "-x", "--audio-format", "mp3",
             "-o", os.path.join(output_dir, f"{video_id}.%(ext)s"),
             url,
         ],

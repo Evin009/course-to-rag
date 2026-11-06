@@ -87,7 +87,7 @@ export function LinksTable({ project, selected, onSelect, onRetry, now }: Props)
                     </div>
                   </td>
                   <td><span className={`kind kind-${link.kind}`}>{KIND_LABEL[link.kind]}</span></td>
-                  <td><StatusCell link={link} now={now} /></td>
+                  <td><StatusCell link={link} now={now} runner={project.runner} /></td>
                   <td className="actions">
                     {link.has_pdf && (
                       <a className="btn btn-small" href={api.pdfUrl(project.id, link.id)} download>

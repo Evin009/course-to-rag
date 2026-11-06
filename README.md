@@ -111,6 +111,39 @@ Two extractions run at a time; the same course listed in two projects is
 never extracted twice at once. For UI work, `npm run dev` (in `web/`) serves
 the frontend on :5173 with hot reload and forwards `/api` to `python webapp.py`.
 
+## Deploying to Google Cloud
+
+The same app runs in your own Google Cloud project: the web UI as a private
+Cloud Run service, each extraction as a Cloud Run job (one task per
+course, in parallel), projects in Firestore, PDFs in Cloud Storage as
+`gs://<bucket>/<project-name>/NN-<course-title>.pdf`, and the Canvas token
+in Secret Manager. Locally nothing changes; `AICC_MODE=cloud` switches it.
+
+One-time setup on your Mac:
+
+```bash
+brew install --cask google-cloud-sdk
+gcloud auth login                     # opens your browser
+```
+
+Create a project with billing enabled in the Cloud console, then:
+
+```bash
+PROJECT_ID=your-project-id REGION=us-east1 ./deploy/gcp.sh
+gcloud run services proxy course-to-pdf --region us-east1 --port 8090   # open http://127.0.0.1:8090
+```
+
+YouTube refuses downloads from cloud servers, so courses with YouTube videos
+wait for a local runner on a machine on an ordinary network. Keep this running
+(it only makes outgoing requests; a stopped runner just leaves courses queued):
+
+```bash
+caffeinate -i python runner.py --project your-project-id   # needs ffmpeg, tesseract, deno, gcloud login
+```
+
+`deploy/gcp.sh` is safe to re-run; it rebuilds the image (with Cloud
+Build, so Docker isn't needed locally) and updates the service and job.
+
 ## Extracting every course linked in a Canvas course
 
 ```bash

@@ -1,0 +1,12 @@
+# Image build for deploy/gcp.sh. Runs as the app's own service account
+# (passed with --service-account), so it doesn't depend on the project's
+# default Compute Engine account, which new organizations leave without roles.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "${_IMAGE}", "."]
+images: ["${_IMAGE}"]
+options:
+  # A user-chosen build account must send logs somewhere it can write.
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+timeout: 1800s

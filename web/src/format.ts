@@ -51,3 +51,18 @@ export function suggestName(raw: string): string {
   }
   return "";
 }
+
+/** Mirrors the server's course_key(): different URLs of one course give one key. */
+export function courseKey(raw: string): string {
+  const url = raw.trim();
+  const canvas = url.match(/^https?:\/\/([^/]+)\/courses\/(\d+)/i);
+  if (canvas) return `canvas:${canvas[1].toLowerCase()}:${canvas[2]}`;
+  const share = url.match(/(?:share\.articulate\.com\/(?:api\/instant-links\/)?|rise\.articulate\.com\/share\/)([A-Za-z0-9_-]{10,})/);
+  if (share) return `share:${share[1]}`;
+  try {
+    const u = new URL(url);
+    return `export:${u.host.toLowerCase()}${u.pathname.replace(/\/index\.html?$/i, "").replace(/\/+$/, "")}`;
+  } catch {
+    return "";
+  }
+}

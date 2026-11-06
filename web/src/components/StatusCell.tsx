@@ -1,15 +1,19 @@
-import { formatBytes, formatDuration } from "../format";
-import type { Link } from "../types";
+import { formatAgo, formatBytes, formatDuration } from "../format";
+import type { Link, RunnerStatus } from "../types";
 import { AlertIcon, CheckIcon, ClockIcon, LockIcon, Spinner } from "./Icons";
 
-export function StatusCell({ link, now }: { link: Link; now: number }) {
+export function StatusCell({ link, now, runner }: { link: Link; now: number; runner?: RunnerStatus }) {
   switch (link.status) {
     case "running": {
       const elapsed = link.started_at ? formatDuration(now - link.started_at) : "";
       return (
         <div className="status">
           <span className="pill pill-running"><Spinner size={11} /> Running</span>
-          <span className="status-detail">{link.progress || "Starting"}{elapsed && ` · ${elapsed}`}</span>
+          {link.runner === "local" && runner && !runner.online ? (
+            <span className="status-detail status-offline">Local runner offline. This course restarts when it’s back.</span>
+          ) : (
+            <span className="status-detail">{link.progress || "Starting"}{elapsed && ` · ${elapsed}`}</span>
+          )}
         </div>
       );
     }
@@ -17,6 +21,13 @@ export function StatusCell({ link, now }: { link: Link; now: number }) {
       return (
         <div className="status">
           <span className="pill pill-queued"><ClockIcon size={12} /> Queued</span>
+          {link.runner === "local" && runner && !runner.online ? (
+            <span className="status-detail status-offline">
+              Local runner offline{runner.last_seen ? `, last seen ${formatAgo(runner.last_seen)}` : ""}. Will start when it’s back.
+            </span>
+          ) : (
+            link.progress && <span className="status-detail">{link.progress}</span>
+          )}
         </div>
       );
     case "done": {
@@ -27,6 +38,18 @@ export function StatusCell({ link, now }: { link: Link; now: number }) {
         formatBytes(link.pdf_size),
         took && `in ${took}`,
       ].filter(Boolean);
+      const problems = link.problems ?? [];
+      if (problems.length > 0) {
+        return (
+          <div className="status">
+            <span className="pill pill-warn"><AlertIcon size={12} /> Done with problems</span>
+            <details className="problems">
+              <summary>{problems.length} {problems.length === 1 ? "part" : "parts"} missing from the PDF</summary>
+              <ul>{problems.map((p) => <li key={p}>{p}</li>)}</ul>
+            </details>
+          </div>
+        );
+      }
       return (
         <div className="status">
           <span className="pill pill-done"><CheckIcon size={12} /> Done</span>

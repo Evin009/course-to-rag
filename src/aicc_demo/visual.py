@@ -10,7 +10,7 @@ from PIL import Image, ImageStat
 from aicc_demo.assembly import Chunk, _format_timestamp
 from aicc_demo.audio import _download_file_directly
 from aicc_demo.images import ocr_image
-from aicc_demo.utils import extract_youtube_id
+from aicc_demo.utils import extract_youtube_id, ytdlp_cookie_args
 
 # Measured on the Suture course's 9 videos (scripts/frame_experiment.py):
 # sampling every 5s and dropping near-duplicates at Hamming distance 10
@@ -123,7 +123,7 @@ def _download_video(url: str, output_dir: str, key: str | None = None) -> str | 
     # best audio and let yt-dlp merge, with progressive fallbacks.
     result = subprocess.run(
         [
-            "yt-dlp", "-f", "bv*[height<=480]+ba/b[height<=480]/b",
+            "yt-dlp", *ytdlp_cookie_args(url), "-f", "bv*[height<=480]+ba/b[height<=480]/b",
             "-o", os.path.join(output_dir, f"{video_id}.%(ext)s"),
             url,
         ],
